@@ -13,6 +13,9 @@
     "test": "tsx --test test/**/*.test.ts",
     "check": "npm run build && npm test"
   },
+  "dependencies": {
+    "fastify": "^5.0.0"
+  },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "tsx": "^4.20.0",

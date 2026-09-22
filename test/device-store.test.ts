@@ -3,7 +3,7 @@ import test from "node:test";
 import { DeviceStore } from "../src/device-store.js";
 
 test("stores telemetry and completes a controller command", () => {
-  const store = new DeviceStore(() => "2026-09-19T12:00:00.000Z", () => "command-1");
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "command-1");
   store.receiveTelemetry("device-1", {
     deviceName: "Pixel",
     batteryPercentage: 80,
@@ -20,4 +20,5 @@ test("stores telemetry and completes a controller command", () => {
 
   assert.equal(completedCommand?.status, "completed");
   assert.equal(store.getPendingCommands("device-1").length, 0);
+  store.close();
 });

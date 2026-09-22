@@ -1,38 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AddressInfo } from "node:net";
+import { DeviceStore } from "../src/device-store.js";
 import { createControllerServer } from "../src/server.js";
 
 test("accepts telemetry and creates a collection command", async () => {
-  const server = createControllerServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address() as AddressInfo;
-  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const store = new DeviceStore(":memory:");
+  const server = createControllerServer(store);
+  await server.ready();
 
   try {
-    const telemetryResponse = await fetch(`${baseUrl}/api/devices/device-1/telemetry`, {
+    const telemetryResponse = await server.inject({
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
+      url: "/api/devices/device-1/telemetry",
+      payload: {
         deviceName: "Pixel",
         batteryPercentage: 50,
         isCharging: false,
         capturedAt: "2026-09-19T12:00:00.000Z",
-      }),
+      },
     });
-    assert.equal(telemetryResponse.status, 200);
+    assert.equal(telemetryResponse.statusCode, 200);
 
-    const commandResponse = await fetch(`${baseUrl}/api/devices/device-1/commands`, {
+    const commandResponse = await server.inject({
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ type: "collectTelemetry" }),
+      url: "/api/devices/device-1/commands",
+      payload: { type: "collectTelemetry" },
     });
-    assert.equal(commandResponse.status, 201);
+    assert.equal(commandResponse.statusCode, 201);
 
-    const commandsResponse = await fetch(`${baseUrl}/api/devices/device-1/commands`);
-    const commands = (await commandsResponse.json()) as { commands: Array<{ type: string }> };
-    assert.deepEqual(commands.commands.map((command) => command.type), ["collectTelemetry"]);
+    const commandsResponse = await server.inject({ method: "GET", url: "/api/devices/device-1/commands" });
+    assert.deepEqual(commandsResponse.json().commands.map((command: { type: string }) => command.type), ["collectTelemetry"]);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await server.close();
   }
 });
