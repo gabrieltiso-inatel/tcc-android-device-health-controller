@@ -89,6 +89,11 @@ export class DeviceStore {
     return (this.database.prepare("SELECT * FROM devices ORDER BY last_seen_at DESC").all() as DeviceRow[]).map(toDevice);
   }
 
+  getDevice(deviceId: string): Device | undefined {
+    const row = this.database.prepare("SELECT * FROM devices WHERE id = ?").get(deviceId) as DeviceRow | undefined;
+    return row ? toDevice(row) : undefined;
+  }
+
   createCommand(deviceId: string, type: CommandType): Command | undefined {
     if (!this.database.prepare("SELECT id FROM devices WHERE id = ?").get(deviceId)) {
       return undefined;
@@ -100,12 +105,17 @@ export class DeviceStore {
   }
 
   getPendingCommands(deviceId: string): Command[] {
-    const rows = this.database.prepare("SELECT * FROM commands WHERE device_id = ? AND status IN ('pending', 'delivered') ORDER BY requested_at ASC")
+    const rows = this.database.prepare("SELECT * FROM commands WHERE device_id = ? AND status = 'pending' ORDER BY requested_at ASC")
       .all(deviceId) as CommandRow[];
     const deliveredAt = this.now();
     this.database.prepare("UPDATE commands SET status = 'delivered', delivered_at = ? WHERE device_id = ? AND status = 'pending'")
       .run(deliveredAt, deviceId);
     return rows.map((row) => toCommand(row.status === "pending" ? { ...row, status: "delivered", delivered_at: deliveredAt } : row));
+  }
+
+  getCommandHistory(deviceId: string): Command[] {
+    const rows = this.database.prepare("SELECT * FROM commands WHERE device_id = ? ORDER BY requested_at DESC").all(deviceId) as CommandRow[];
+    return rows.map(toCommand);
   }
 
   completeCommand(commandId: string, succeeded: boolean, message: string): Command | undefined {

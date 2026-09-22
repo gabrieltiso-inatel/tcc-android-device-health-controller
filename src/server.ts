@@ -7,7 +7,15 @@ export function createControllerServer(store = new DeviceStore()) {
   const app = Fastify({ logger: true });
 
   app.get("/health", async () => ({ status: "ok" }));
-  app.get("/api/devices", async () => ({ devices: store.listDevices() }));
+  app.get("/api/devices", async () => ({ devices: store.listDevices().map(withConnectionStatus) }));
+
+  app.get<{ Params: { deviceId: string } }>("/devices/:deviceId", async (request, reply) => {
+    const device = store.getDevice(request.params.deviceId);
+    if (!device) {
+      return reply.code(404).type("text/html; charset=utf-8").send("<h1>Device not found</h1>");
+    }
+    return reply.type("text/html; charset=utf-8").send(renderDeviceDetail(device, store.getCommandHistory(device.id)));
+  });
 
   app.post<{ Params: { deviceId: string }; Body: Telemetry }>(
     "/api/devices/:deviceId/telemetry",
@@ -17,6 +25,10 @@ export function createControllerServer(store = new DeviceStore()) {
 
   app.get<{ Params: { deviceId: string } }>("/api/devices/:deviceId/commands", async (request) => ({
     commands: store.getPendingCommands(request.params.deviceId),
+  }));
+
+  app.get<{ Params: { deviceId: string } }>("/api/devices/:deviceId/history", async (request) => ({
+    commands: store.getCommandHistory(request.params.deviceId),
   }));
 
   app.post<{ Params: { deviceId: string }; Body: { type: CommandType } }>(
@@ -39,7 +51,7 @@ export function createControllerServer(store = new DeviceStore()) {
 
   app.get("/", async (_request, reply) => {
     reply.type("text/html; charset=utf-8");
-    return renderDashboard(store.listDevices());
+    return renderDashboard(store.listDevices().map(withConnectionStatus));
   });
 
   app.addHook("onClose", () => store.close());
@@ -75,11 +87,27 @@ const commandResultSchema = {
   },
 } as const;
 
-function renderDashboard(devices: ReturnType<DeviceStore["listDevices"]>) {
+function withConnectionStatus(device: ReturnType<DeviceStore["listDevices"]>[number]) {
+  const ageInMilliseconds = Date.now() - Date.parse(device.lastSeenAt);
+  return { ...device, status: ageInMilliseconds <= 60_000 ? "online" : "stale" } as const;
+}
+
+function renderDashboard(devices: ReturnType<typeof withConnectionStatus>[]) {
   const rows = devices.length
-    ? devices.map((device) => `<tr><td>${escapeHtml(device.deviceName)}</td><td>${device.batteryPercentage}% ${device.isCharging ? "charging" : "discharging"}</td><td>${escapeHtml(device.lastSeenAt)}</td><td><button data-device-id="${escapeHtml(device.id)}" onclick="requestTelemetry(this.dataset.deviceId)">Collect telemetry</button></td></tr>`).join("")
-    : '<tr><td colspan="4">No device has reported telemetry yet.</td></tr>';
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Device Health Controller</title><style>body{font-family:system-ui,sans-serif;max-width:960px;margin:48px auto;padding:0 20px;color:#172033}table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid #d7ddea;padding:14px 8px}button{background:#255fdb;color:white;border:0;border-radius:6px;padding:8px 12px;font-weight:600;cursor:pointer}.hint{color:#5b6575}</style></head><body><h1>Device Health Controller</h1><p class="hint">The page refreshes every five seconds.</p><table><thead><tr><th>Device</th><th>Battery</th><th>Last seen</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table><script>async function requestTelemetry(id){const response=await fetch('/api/devices/'+encodeURIComponent(id)+'/commands',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'collectTelemetry'})});if(!response.ok){alert('Could not queue command');return}location.reload()}setTimeout(()=>location.reload(),5000)</script></body></html>`;
+    ? devices.map((device) => `<tr><td><a href="/devices/${encodeURIComponent(device.id)}">${escapeHtml(device.deviceName)}</a></td><td>${device.batteryPercentage}% ${device.isCharging ? "charging" : "discharging"}</td><td>${escapeHtml(device.lastSeenAt)}</td></tr>`).join("")
+    : '<tr><td colspan="3">No device has reported telemetry yet.</td></tr>';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Device Health Controller</title><style>${styles()}</style></head><body><main><h1>Devices</h1><p class="hint">Select a device to view details and action history.</p><table><thead><tr><th>Device</th><th>Battery</th><th>Last update</th></tr></thead><tbody>${rows}</tbody></table></main></body></html>`;
+}
+
+function renderDeviceDetail(device: ReturnType<DeviceStore["listDevices"]>[number], commands: ReturnType<DeviceStore["getCommandHistory"]>) {
+  const history = commands.length
+    ? commands.map((command) => `<li><strong>${escapeHtml(command.type)}</strong> — ${escapeHtml(command.status)}<br><span class="hint">Requested ${escapeHtml(command.requestedAt)}${command.completedAt ? ` · Completed ${escapeHtml(command.completedAt)}` : ""}</span>${command.resultMessage ? `<br>${escapeHtml(command.resultMessage)}` : ""}</li>`).join("")
+    : "<li>No actions recorded yet.</li>";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(device.deviceName)} — Device Health</title><style>${styles()}</style></head><body><main><a href="/">← All devices</a><h1>${escapeHtml(device.deviceName)}</h1><section class="card"><h2>Current state</h2><p><strong>Battery:</strong> ${device.batteryPercentage}% (${device.isCharging ? "charging" : "discharging"})</p><p><strong>Last update:</strong> ${escapeHtml(device.lastSeenAt)}</p><p><strong>Device ID:</strong> ${escapeHtml(device.id)}</p></section><section class="card"><h2>Action history</h2><ul>${history}</ul></section></main></body></html>`;
+}
+
+function styles() {
+  return "body{font-family:system-ui,sans-serif;max-width:960px;margin:48px auto;padding:0 20px;color:#172033}main{display:grid;gap:20px}table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid #d7ddea;padding:14px 8px}a{color:#255fdb;text-decoration:none}a:hover{text-decoration:underline}.card{border:1px solid #d7ddea;border-radius:8px;padding:20px}.hint{color:#5b6575}ul{padding-left:20px}li{margin:12px 0}";
 }
 
 function escapeHtml(value: string) {
