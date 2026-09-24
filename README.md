@@ -27,10 +27,16 @@ npm run check
 | --- | --- | --- |
 | `GET` | `/health` | Verifica se o controlador está ativo. |
 | `GET` | `/api/devices` | Lista os dispositivos conhecidos e o estado `online`/`stale`. |
+| `POST` | `/api/pairing-codes` | Cria um código temporário de pareamento. |
+| `POST` | `/api/devices/pair` | Pareia um agente e entrega seu token. |
 | `POST` | `/api/devices/{deviceId}/telemetry` | Recebe nome e bateria. |
 | `GET` | `/api/devices/{deviceId}/commands` | Entrega comandos pendentes ao agente. |
 | `POST` | `/api/devices/{deviceId}/commands` | Cria o comando `collectTelemetry`. |
 | `POST` | `/api/commands/{commandId}/result` | Registra o resultado de um comando. |
 | `GET` | `/api/devices/{deviceId}/history` | Lista o histórico de comandos do dispositivo. |
+
+O agente deve enviar o token recebido no pareamento através do header `Authorization: Bearer <token>` nas chamadas de telemetria, consulta de comandos e resultado de comando.
+
+O dashboard diferencia `Last contact`, atualizado quando o agente consulta comandos, de `Telemetry captured`, que representa o instante da última coleta recebida.
 
 Os dispositivos e comandos são persistidos em `data/controller.db` usando SQLite local.

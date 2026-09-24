@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -24,6 +24,16 @@ export type Command = {
   resultMessage?: string;
 };
 
+export type PairingCode = {
+  code: string;
+  expiresAt: string;
+};
+
+export type DeviceCredential = {
+  deviceId: string;
+  token: string;
+};
+
 type DeviceRow = {
   id: string;
   device_name: string;
@@ -44,6 +54,12 @@ type CommandRow = {
   result_message: string | null;
 };
 
+type PairingCodeRow = {
+  code: string;
+  expires_at: string;
+  used_at: string | null;
+};
+
 export class DeviceStore {
   private readonly database: DatabaseSync;
 
@@ -51,6 +67,8 @@ export class DeviceStore {
     databasePath = "data/controller.db",
     private readonly now = () => new Date().toISOString(),
     private readonly createIdentifier = randomUUID,
+    private readonly createPairingCodeValue = () => randomInt(100_000, 1_000_000).toString(),
+    private readonly createToken = () => randomBytes(32).toString("base64url"),
   ) {
     if (databasePath !== ":memory:") {
       mkdirSync(dirname(databasePath), { recursive: true });
@@ -66,11 +84,66 @@ export class DeviceStore {
         requested_at TEXT NOT NULL, delivered_at TEXT, completed_at TEXT, result_message TEXT,
         FOREIGN KEY(device_id) REFERENCES devices(id)
       );
+      CREATE TABLE IF NOT EXISTS pairing_codes (
+        code TEXT PRIMARY KEY, expires_at TEXT NOT NULL, used_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS device_credentials (
+        device_id TEXT PRIMARY KEY, device_name TEXT NOT NULL, token_hash TEXT NOT NULL,
+        paired_at TEXT NOT NULL
+      );
     `);
   }
 
   close() {
     this.database.close();
+  }
+
+  createPairingCode(validForMinutes = 5): PairingCode {
+    const code = this.createPairingCodeValue();
+    const expiresAt = new Date(Date.parse(this.now()) + validForMinutes * 60_000).toISOString();
+    this.database.prepare("INSERT INTO pairing_codes (code, expires_at) VALUES (?, ?)").run(code, expiresAt);
+    return { code, expiresAt };
+  }
+
+  pairDevice(code: string, deviceId: string, deviceName: string): DeviceCredential | undefined {
+    const pairingCode = this.database.prepare("SELECT * FROM pairing_codes WHERE code = ?")
+      .get(code) as PairingCodeRow | undefined;
+    const pairedAt = this.now();
+    if (!pairingCode || pairingCode.used_at || pairingCode.expires_at < pairedAt) {
+      return undefined;
+    }
+
+    const token = this.createToken();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare("UPDATE pairing_codes SET used_at = ? WHERE code = ?").run(pairedAt, code);
+      this.database.prepare(`
+        INSERT INTO device_credentials (device_id, device_name, token_hash, paired_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(device_id) DO UPDATE SET device_name = excluded.device_name,
+        token_hash = excluded.token_hash, paired_at = excluded.paired_at
+      `).run(deviceId, deviceName, hashToken(token), pairedAt);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+    return { deviceId, token };
+  }
+
+  authenticateDevice(deviceId: string, token: string): boolean {
+    const row = this.database.prepare("SELECT token_hash FROM device_credentials WHERE device_id = ?")
+      .get(deviceId) as { token_hash: string } | undefined;
+    return row ? matchesToken(token, row.token_hash) : false;
+  }
+
+  authenticateCommand(commandId: string, token: string): boolean {
+    const row = this.database.prepare(`
+      SELECT credentials.token_hash FROM commands
+      JOIN device_credentials credentials ON credentials.device_id = commands.device_id
+      WHERE commands.id = ?
+    `).get(commandId) as { token_hash: string } | undefined;
+    return row ? matchesToken(token, row.token_hash) : false;
   }
 
   receiveTelemetry(deviceId: string, telemetry: Telemetry): Device {
@@ -92,6 +165,10 @@ export class DeviceStore {
   getDevice(deviceId: string): Device | undefined {
     const row = this.database.prepare("SELECT * FROM devices WHERE id = ?").get(deviceId) as DeviceRow | undefined;
     return row ? toDevice(row) : undefined;
+  }
+
+  recordDeviceContact(deviceId: string): void {
+    this.database.prepare("UPDATE devices SET last_seen_at = ? WHERE id = ?").run(this.now(), deviceId);
   }
 
   createCommand(deviceId: string, type: CommandType): Command | undefined {
@@ -130,6 +207,16 @@ export class DeviceStore {
       .run(status, completedAt, message, commandId);
     return toCommand({ ...row, status, completed_at: completedAt, result_message: message });
   }
+}
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function matchesToken(token: string, expectedHash: string): boolean {
+  const receivedHash = Buffer.from(hashToken(token), "hex");
+  const storedHash = Buffer.from(expectedHash, "hex");
+  return receivedHash.length === storedHash.length && timingSafeEqual(receivedHash, storedHash);
 }
 
 function toDevice(row: DeviceRow): Device {
