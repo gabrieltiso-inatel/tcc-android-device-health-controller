@@ -1,6 +1,6 @@
 # Device Health Controller
 
-Controlador local do primeiro fluxo ponta a ponta. Ele mostra a telemetria recebida e pode solicitar uma nova coleta de bateria ao agente.
+Controlador local do primeiro fluxo ponta a ponta. Ele mostra a telemetria recebida e coordena ações suportadas pelo agente.
 
 ## Requisitos
 
@@ -31,18 +31,20 @@ npm run check
 | `POST` | `/api/devices/pair` | Pareia um agente e entrega seu token. |
 | `POST` | `/api/devices/{deviceId}/telemetry` | Recebe estado, versão e capacidades do agente. |
 | `GET` | `/api/devices/{deviceId}/commands` | Entrega comandos pendentes ao agente. |
-| `POST` | `/api/devices/{deviceId}/commands` | Cria o comando `collectTelemetry`. |
+| `POST` | `/api/devices/{deviceId}/commands` | Cria `collectTelemetry` ou `collectStorageSummary`. |
 | `POST` | `/api/commands/{commandId}/result` | Registra o resultado de um comando. |
 | `GET` | `/api/devices/{deviceId}/history` | Lista o histórico de comandos do dispositivo. |
 
 O agente deve enviar o token recebido no pareamento através do header `Authorization: Bearer <token>` nas chamadas de telemetria, consulta de comandos e resultado de comando.
 
-O dashboard diferencia `Last contact`, atualizado quando o agente consulta comandos, de `Telemetry captured`, que representa o instante da última coleta recebida.
+O dashboard diferencia `Last contact`, atualizado quando o agente consulta comandos, de `Telemetry captured`, que representa o instante da última coleta recebida. Na tela do dispositivo, a seção `Storage` permite solicitar e acompanhar a atualização do resumo de armazenamento.
 
 Comandos entregues sem confirmação voltam a ficar disponíveis após 60 segundos. Depois de três entregas sem resultado, o controlador marca o comando como `expired`.
 
 Falhas definitivas usam códigos internos seguros, como `unsupported_command` e `execution_failed`. Falhas temporárias de conexão não encerram o comando e são tentadas novamente.
 
 O controlador cria comandos somente quando a capacidade correspondente foi informada pelo agente.
+
+O resultado de `collectStorageSummary` contém apenas totais agregados de espaço total, usado e disponível. Nenhum arquivo é listado ou acessado.
 
 Os dispositivos e comandos são persistidos em `data/controller.db` usando SQLite local.

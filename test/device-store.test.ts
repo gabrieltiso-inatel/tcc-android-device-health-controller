@@ -9,7 +9,7 @@ const telemetry = {
   androidVersion: "14",
   apiLevel: 34,
   agentVersion: "0.1.0",
-  capabilities: ["collectTelemetry" as const],
+  capabilities: ["collectTelemetry" as const, "collectStorageSummary" as const],
   batteryPercentage: 80,
   isCharging: false,
   capturedAt: "2026-09-19T11:59:00.000Z",
@@ -100,6 +100,29 @@ test("stores a safe command error code", () => {
   assert.equal(command?.status, "failed");
   assert.equal(command?.resultCode, "execution_failed");
   assert.equal(command?.resultMessage, "Command execution failed");
+  store.close();
+});
+
+test("stores a structured command result", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "command-1");
+  store.receiveTelemetry("device-1", telemetry);
+  store.createCommand("device-1", "collectStorageSummary");
+
+  const command = store.completeCommand(
+    "command-1",
+    true,
+    "Storage summary collected",
+    undefined,
+    { totalBytes: 100, usedBytes: 60, availableBytes: 40, capturedAt: "2026-09-19T12:00:00.000Z" },
+  );
+
+  assert.deepEqual(command?.result, {
+    totalBytes: 100,
+    usedBytes: 60,
+    availableBytes: 40,
+    capturedAt: "2026-09-19T12:00:00.000Z",
+  });
+  assert.deepEqual(store.getCommandHistory("device-1")[0]?.result, command?.result);
   store.close();
 });
 

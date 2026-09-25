@@ -17,8 +17,14 @@ export type Telemetry = {
 };
 
 export type Device = Telemetry & { id: string; lastSeenAt: string };
-export type CommandType = "collectTelemetry";
+export type CommandType = "collectTelemetry" | "collectStorageSummary";
 export type CommandStatus = "pending" | "delivered" | "completed" | "failed" | "expired";
+export type StorageSummary = {
+  totalBytes: number;
+  usedBytes: number;
+  availableBytes: number;
+  capturedAt: string;
+};
 export type Command = {
   id: string;
   deviceId: string;
@@ -30,6 +36,7 @@ export type Command = {
   completedAt?: string;
   resultCode?: string;
   resultMessage?: string;
+  result?: StorageSummary;
 };
 
 export type PairingCode = {
@@ -67,6 +74,7 @@ type CommandRow = {
   completed_at: string | null;
   result_message: string | null;
   result_code: string | null;
+  result_json: string | null;
   attempt_count: number;
 };
 
@@ -103,6 +111,7 @@ export class DeviceStore {
       CREATE TABLE IF NOT EXISTS commands (
         id TEXT PRIMARY KEY, device_id TEXT NOT NULL, type TEXT NOT NULL, status TEXT NOT NULL,
         requested_at TEXT NOT NULL, delivered_at TEXT, completed_at TEXT, result_code TEXT, result_message TEXT,
+        result_json TEXT,
         attempt_count INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY(device_id) REFERENCES devices(id)
       );
@@ -116,6 +125,7 @@ export class DeviceStore {
     `);
     this.addColumnIfMissing("commands", "attempt_count", "INTEGER NOT NULL DEFAULT 0");
     this.addColumnIfMissing("commands", "result_code", "TEXT");
+    this.addColumnIfMissing("commands", "result_json", "TEXT");
     this.addColumnIfMissing("devices", "manufacturer", "TEXT NOT NULL DEFAULT ''");
     this.addColumnIfMissing("devices", "model", "TEXT NOT NULL DEFAULT ''");
     this.addColumnIfMissing("devices", "android_version", "TEXT NOT NULL DEFAULT ''");
@@ -290,7 +300,13 @@ export class DeviceStore {
     `).run(currentTime, deviceId, retryBefore, this.maximumDeliveryAttempts);
   }
 
-  completeCommand(commandId: string, succeeded: boolean, message: string, resultCode?: string): Command | undefined {
+  completeCommand(
+    commandId: string,
+    succeeded: boolean,
+    message: string,
+    resultCode?: string,
+    result?: StorageSummary,
+  ): Command | undefined {
     const row = this.database.prepare("SELECT * FROM commands WHERE id = ? AND status IN ('pending', 'delivered')")
       .get(commandId) as CommandRow | undefined;
     if (!row) {
@@ -298,14 +314,16 @@ export class DeviceStore {
     }
     const completedAt = this.now();
     const status: CommandStatus = succeeded ? "completed" : "failed";
-    this.database.prepare("UPDATE commands SET status = ?, completed_at = ?, result_code = ?, result_message = ? WHERE id = ?")
-      .run(status, completedAt, resultCode ?? null, message, commandId);
+    const resultJson = succeeded && result ? JSON.stringify(result) : null;
+    this.database.prepare("UPDATE commands SET status = ?, completed_at = ?, result_code = ?, result_message = ?, result_json = ? WHERE id = ?")
+      .run(status, completedAt, resultCode ?? null, message, resultJson, commandId);
     return toCommand({
       ...row,
       status,
       completed_at: completedAt,
       result_code: resultCode ?? null,
       result_message: message,
+      result_json: resultJson,
     });
   }
 }
@@ -349,5 +367,6 @@ function toCommand(row: CommandRow): Command {
     ...(row.completed_at ? { completedAt: row.completed_at } : {}),
     ...(row.result_code ? { resultCode: row.result_code } : {}),
     ...(row.result_message ? { resultMessage: row.result_message } : {}),
+    ...(row.result_json ? { result: JSON.parse(row.result_json) as StorageSummary } : {}),
   };
 }
