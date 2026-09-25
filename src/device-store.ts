@@ -5,6 +5,12 @@ import { DatabaseSync } from "node:sqlite";
 
 export type Telemetry = {
   deviceName: string;
+  manufacturer: string;
+  model: string;
+  androidVersion: string;
+  apiLevel: number;
+  agentVersion: string;
+  capabilities: CommandType[];
   batteryPercentage: number;
   isCharging: boolean;
   capturedAt: string;
@@ -22,6 +28,7 @@ export type Command = {
   attemptCount: number;
   deliveredAt?: string;
   completedAt?: string;
+  resultCode?: string;
   resultMessage?: string;
 };
 
@@ -42,6 +49,12 @@ type DeviceRow = {
   is_charging: number;
   captured_at: string;
   last_seen_at: string;
+  manufacturer: string;
+  model: string;
+  android_version: string;
+  api_level: number;
+  agent_version: string;
+  capabilities_json: string;
 };
 
 type CommandRow = {
@@ -53,6 +66,7 @@ type CommandRow = {
   delivered_at: string | null;
   completed_at: string | null;
   result_message: string | null;
+  result_code: string | null;
   attempt_count: number;
 };
 
@@ -81,11 +95,14 @@ export class DeviceStore {
     this.database.exec(`
       CREATE TABLE IF NOT EXISTS devices (
         id TEXT PRIMARY KEY, device_name TEXT NOT NULL, battery_percentage INTEGER NOT NULL,
-        is_charging INTEGER NOT NULL, captured_at TEXT NOT NULL, last_seen_at TEXT NOT NULL
+        is_charging INTEGER NOT NULL, captured_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+        manufacturer TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '',
+        android_version TEXT NOT NULL DEFAULT '', api_level INTEGER NOT NULL DEFAULT 0,
+        agent_version TEXT NOT NULL DEFAULT '', capabilities_json TEXT NOT NULL DEFAULT '[]'
       );
       CREATE TABLE IF NOT EXISTS commands (
         id TEXT PRIMARY KEY, device_id TEXT NOT NULL, type TEXT NOT NULL, status TEXT NOT NULL,
-        requested_at TEXT NOT NULL, delivered_at TEXT, completed_at TEXT, result_message TEXT,
+        requested_at TEXT NOT NULL, delivered_at TEXT, completed_at TEXT, result_code TEXT, result_message TEXT,
         attempt_count INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY(device_id) REFERENCES devices(id)
       );
@@ -98,6 +115,13 @@ export class DeviceStore {
       );
     `);
     this.addColumnIfMissing("commands", "attempt_count", "INTEGER NOT NULL DEFAULT 0");
+    this.addColumnIfMissing("commands", "result_code", "TEXT");
+    this.addColumnIfMissing("devices", "manufacturer", "TEXT NOT NULL DEFAULT ''");
+    this.addColumnIfMissing("devices", "model", "TEXT NOT NULL DEFAULT ''");
+    this.addColumnIfMissing("devices", "android_version", "TEXT NOT NULL DEFAULT ''");
+    this.addColumnIfMissing("devices", "api_level", "INTEGER NOT NULL DEFAULT 0");
+    this.addColumnIfMissing("devices", "agent_version", "TEXT NOT NULL DEFAULT ''");
+    this.addColumnIfMissing("devices", "capabilities_json", "TEXT NOT NULL DEFAULT '[]'");
   }
 
   close() {
@@ -162,12 +186,31 @@ export class DeviceStore {
   receiveTelemetry(deviceId: string, telemetry: Telemetry): Device {
     const lastSeenAt = this.now();
     this.database.prepare(`
-      INSERT INTO devices (id, device_name, battery_percentage, is_charging, captured_at, last_seen_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO devices (
+        id, device_name, battery_percentage, is_charging, captured_at, last_seen_at,
+        manufacturer, model, android_version, api_level, agent_version, capabilities_json
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET device_name = excluded.device_name,
       battery_percentage = excluded.battery_percentage, is_charging = excluded.is_charging,
-      captured_at = excluded.captured_at, last_seen_at = excluded.last_seen_at
-    `).run(deviceId, telemetry.deviceName, telemetry.batteryPercentage, Number(telemetry.isCharging), telemetry.capturedAt, lastSeenAt);
+      captured_at = excluded.captured_at, last_seen_at = excluded.last_seen_at,
+      manufacturer = excluded.manufacturer, model = excluded.model,
+      android_version = excluded.android_version, api_level = excluded.api_level,
+      agent_version = excluded.agent_version, capabilities_json = excluded.capabilities_json
+    `).run(
+      deviceId,
+      telemetry.deviceName,
+      telemetry.batteryPercentage,
+      Number(telemetry.isCharging),
+      telemetry.capturedAt,
+      lastSeenAt,
+      telemetry.manufacturer,
+      telemetry.model,
+      telemetry.androidVersion,
+      telemetry.apiLevel,
+      telemetry.agentVersion,
+      JSON.stringify(telemetry.capabilities),
+    );
     return { id: deviceId, ...telemetry, lastSeenAt };
   }
 
@@ -185,7 +228,7 @@ export class DeviceStore {
   }
 
   createCommand(deviceId: string, type: CommandType): Command | undefined {
-    if (!this.database.prepare("SELECT id FROM devices WHERE id = ?").get(deviceId)) {
+    if (!this.supportsCommand(deviceId, type)) {
       return undefined;
     }
     const command: Command = {
@@ -228,6 +271,10 @@ export class DeviceStore {
     }));
   }
 
+  supportsCommand(deviceId: string, type: CommandType): boolean {
+    return this.getDevice(deviceId)?.capabilities.includes(type) ?? false;
+  }
+
   getCommandHistory(deviceId: string): Command[] {
     this.expireCommands(deviceId, this.now());
     const rows = this.database.prepare("SELECT * FROM commands WHERE device_id = ? ORDER BY requested_at DESC").all(deviceId) as CommandRow[];
@@ -237,12 +284,13 @@ export class DeviceStore {
   private expireCommands(deviceId: string, currentTime: string): void {
     const retryBefore = new Date(Date.parse(currentTime) - this.deliveryTimeoutMilliseconds).toISOString();
     this.database.prepare(`
-      UPDATE commands SET status = 'expired', completed_at = ?, result_message = 'Command delivery timed out'
+      UPDATE commands SET status = 'expired', completed_at = ?, result_code = 'delivery_timeout',
+      result_message = 'Command delivery timed out'
       WHERE device_id = ? AND status = 'delivered' AND delivered_at <= ? AND attempt_count >= ?
     `).run(currentTime, deviceId, retryBefore, this.maximumDeliveryAttempts);
   }
 
-  completeCommand(commandId: string, succeeded: boolean, message: string): Command | undefined {
+  completeCommand(commandId: string, succeeded: boolean, message: string, resultCode?: string): Command | undefined {
     const row = this.database.prepare("SELECT * FROM commands WHERE id = ? AND status IN ('pending', 'delivered')")
       .get(commandId) as CommandRow | undefined;
     if (!row) {
@@ -250,9 +298,15 @@ export class DeviceStore {
     }
     const completedAt = this.now();
     const status: CommandStatus = succeeded ? "completed" : "failed";
-    this.database.prepare("UPDATE commands SET status = ?, completed_at = ?, result_message = ? WHERE id = ?")
-      .run(status, completedAt, message, commandId);
-    return toCommand({ ...row, status, completed_at: completedAt, result_message: message });
+    this.database.prepare("UPDATE commands SET status = ?, completed_at = ?, result_code = ?, result_message = ? WHERE id = ?")
+      .run(status, completedAt, resultCode ?? null, message, commandId);
+    return toCommand({
+      ...row,
+      status,
+      completed_at: completedAt,
+      result_code: resultCode ?? null,
+      result_message: message,
+    });
   }
 }
 
@@ -270,6 +324,12 @@ function toDevice(row: DeviceRow): Device {
   return {
     id: row.id,
     deviceName: row.device_name,
+    manufacturer: row.manufacturer,
+    model: row.model,
+    androidVersion: row.android_version,
+    apiLevel: row.api_level,
+    agentVersion: row.agent_version,
+    capabilities: JSON.parse(row.capabilities_json) as CommandType[],
     batteryPercentage: row.battery_percentage,
     isCharging: Boolean(row.is_charging),
     capturedAt: row.captured_at,
@@ -287,6 +347,7 @@ function toCommand(row: CommandRow): Command {
     attemptCount: row.attempt_count,
     ...(row.delivered_at ? { deliveredAt: row.delivered_at } : {}),
     ...(row.completed_at ? { completedAt: row.completed_at } : {}),
+    ...(row.result_code ? { resultCode: row.result_code } : {}),
     ...(row.result_message ? { resultMessage: row.result_message } : {}),
   };
 }

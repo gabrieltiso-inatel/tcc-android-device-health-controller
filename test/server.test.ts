@@ -3,6 +3,19 @@ import test from "node:test";
 import { DeviceStore } from "../src/device-store.js";
 import { createControllerServer } from "../src/server.js";
 
+const telemetry = {
+  deviceName: "Pixel",
+  manufacturer: "Google",
+  model: "Pixel 8",
+  androidVersion: "14",
+  apiLevel: 34,
+  agentVersion: "0.1.0",
+  capabilities: ["collectTelemetry"],
+  batteryPercentage: 50,
+  isCharging: false,
+  capturedAt: "2026-09-19T12:00:00.000Z",
+};
+
 test("accepts telemetry and creates a collection command", async () => {
   const store = new DeviceStore(":memory:");
   const server = createControllerServer(store);
@@ -23,12 +36,7 @@ test("accepts telemetry and creates a collection command", async () => {
       method: "POST",
       url: "/api/devices/device-1/telemetry",
       headers: { authorization: `Bearer ${token}` },
-      payload: {
-        deviceName: "Pixel",
-        batteryPercentage: 50,
-        isCharging: false,
-        capturedAt: "2026-09-19T12:00:00.000Z",
-      },
+      payload: telemetry,
     });
     assert.equal(telemetryResponse.statusCode, 200);
 
@@ -49,12 +57,7 @@ test("accepts telemetry and creates a collection command", async () => {
     const unauthorizedResponse = await server.inject({
       method: "POST",
       url: "/api/devices/device-1/telemetry",
-      payload: {
-        deviceName: "Pixel",
-        batteryPercentage: 50,
-        isCharging: false,
-        capturedAt: "2026-09-19T12:00:00.000Z",
-      },
+      payload: telemetry,
     });
     assert.equal(unauthorizedResponse.statusCode, 401);
   } finally {

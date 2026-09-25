@@ -59,12 +59,18 @@ export function createControllerServer(store = new DeviceStore()) {
     "/api/devices/:deviceId/commands",
     { schema: { body: commandSchema } },
     async (request, reply) => {
+      if (!store.getDevice(request.params.deviceId)) {
+        return reply.code(404).send({ message: "Device not found" });
+      }
+      if (!store.supportsCommand(request.params.deviceId, request.body.type)) {
+        return reply.code(409).send({ message: "Command is not supported by this device" });
+      }
       const command = store.createCommand(request.params.deviceId, request.body.type);
-      return command ? reply.code(201).send({ command }) : reply.code(404).send({ message: "Device not found" });
+      return reply.code(201).send({ command });
     },
   );
 
-  app.post<{ Params: { commandId: string }; Body: { succeeded: boolean; message: string } }>(
+  app.post<{ Params: { commandId: string }; Body: { succeeded: boolean; message: string; errorCode?: string } }>(
     "/api/commands/:commandId/result",
     { schema: { body: commandResultSchema } },
     async (request, reply) => {
@@ -72,7 +78,12 @@ export function createControllerServer(store = new DeviceStore()) {
       if (!token || !store.authenticateCommand(request.params.commandId, token)) {
         return unauthorized(reply);
       }
-      const command = store.completeCommand(request.params.commandId, request.body.succeeded, request.body.message);
+      const command = store.completeCommand(
+        request.params.commandId,
+        request.body.succeeded,
+        request.body.message,
+        request.body.errorCode,
+      );
       return command ? { command } : reply.code(404).send({ message: "Pending command not found" });
     },
   );
@@ -89,9 +100,30 @@ export function createControllerServer(store = new DeviceStore()) {
 const telemetrySchema = {
   type: "object",
   additionalProperties: false,
-  required: ["deviceName", "batteryPercentage", "isCharging", "capturedAt"],
+  required: [
+    "deviceName",
+    "manufacturer",
+    "model",
+    "androidVersion",
+    "apiLevel",
+    "agentVersion",
+    "capabilities",
+    "batteryPercentage",
+    "isCharging",
+    "capturedAt",
+  ],
   properties: {
     deviceName: { type: "string", minLength: 1, maxLength: 120 },
+    manufacturer: { type: "string", minLength: 1, maxLength: 120 },
+    model: { type: "string", minLength: 1, maxLength: 120 },
+    androidVersion: { type: "string", minLength: 1, maxLength: 40 },
+    apiLevel: { type: "integer", minimum: 26 },
+    agentVersion: { type: "string", minLength: 1, maxLength: 40 },
+    capabilities: {
+      type: "array",
+      uniqueItems: true,
+      items: { type: "string", enum: ["collectTelemetry"] },
+    },
     batteryPercentage: { type: "integer", minimum: 0, maximum: 100 },
     isCharging: { type: "boolean" },
     capturedAt: { type: "string", format: "date-time" },
@@ -123,6 +155,10 @@ const commandResultSchema = {
   properties: {
     succeeded: { type: "boolean" },
     message: { type: "string", minLength: 1, maxLength: 500 },
+    errorCode: {
+      type: "string",
+      enum: ["unsupported_command", "execution_failed"],
+    },
   },
 } as const;
 
