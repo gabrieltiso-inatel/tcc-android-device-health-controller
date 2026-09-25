@@ -39,4 +39,6 @@ O agente deve enviar o token recebido no pareamento através do header `Authoriz
 
 O dashboard diferencia `Last contact`, atualizado quando o agente consulta comandos, de `Telemetry captured`, que representa o instante da última coleta recebida.
 
+Comandos entregues sem confirmação voltam a ficar disponíveis após 60 segundos. Depois de três entregas sem resultado, o controlador marca o comando como `expired`.
+
 Os dispositivos e comandos são persistidos em `data/controller.db` usando SQLite local.

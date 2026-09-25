@@ -12,13 +12,14 @@ export type Telemetry = {
 
 export type Device = Telemetry & { id: string; lastSeenAt: string };
 export type CommandType = "collectTelemetry";
-export type CommandStatus = "pending" | "delivered" | "completed" | "failed";
+export type CommandStatus = "pending" | "delivered" | "completed" | "failed" | "expired";
 export type Command = {
   id: string;
   deviceId: string;
   type: CommandType;
   status: CommandStatus;
   requestedAt: string;
+  attemptCount: number;
   deliveredAt?: string;
   completedAt?: string;
   resultMessage?: string;
@@ -52,6 +53,7 @@ type CommandRow = {
   delivered_at: string | null;
   completed_at: string | null;
   result_message: string | null;
+  attempt_count: number;
 };
 
 type PairingCodeRow = {
@@ -69,6 +71,8 @@ export class DeviceStore {
     private readonly createIdentifier = randomUUID,
     private readonly createPairingCodeValue = () => randomInt(100_000, 1_000_000).toString(),
     private readonly createToken = () => randomBytes(32).toString("base64url"),
+    private readonly deliveryTimeoutMilliseconds = 60_000,
+    private readonly maximumDeliveryAttempts = 3,
   ) {
     if (databasePath !== ":memory:") {
       mkdirSync(dirname(databasePath), { recursive: true });
@@ -82,6 +86,7 @@ export class DeviceStore {
       CREATE TABLE IF NOT EXISTS commands (
         id TEXT PRIMARY KEY, device_id TEXT NOT NULL, type TEXT NOT NULL, status TEXT NOT NULL,
         requested_at TEXT NOT NULL, delivered_at TEXT, completed_at TEXT, result_message TEXT,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY(device_id) REFERENCES devices(id)
       );
       CREATE TABLE IF NOT EXISTS pairing_codes (
@@ -92,10 +97,18 @@ export class DeviceStore {
         paired_at TEXT NOT NULL
       );
     `);
+    this.addColumnIfMissing("commands", "attempt_count", "INTEGER NOT NULL DEFAULT 0");
   }
 
   close() {
     this.database.close();
+  }
+
+  private addColumnIfMissing(table: string, column: string, definition: string): void {
+    const columns = this.database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!columns.some((candidate) => candidate.name === column)) {
+      this.database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
   }
 
   createPairingCode(validForMinutes = 5): PairingCode {
@@ -175,24 +188,58 @@ export class DeviceStore {
     if (!this.database.prepare("SELECT id FROM devices WHERE id = ?").get(deviceId)) {
       return undefined;
     }
-    const command: Command = { id: this.createIdentifier(), deviceId, type, status: "pending", requestedAt: this.now() };
+    const command: Command = {
+      id: this.createIdentifier(),
+      deviceId,
+      type,
+      status: "pending",
+      requestedAt: this.now(),
+      attemptCount: 0,
+    };
     this.database.prepare("INSERT INTO commands (id, device_id, type, status, requested_at) VALUES (?, ?, ?, ?, ?)")
       .run(command.id, command.deviceId, command.type, command.status, command.requestedAt);
     return command;
   }
 
   getPendingCommands(deviceId: string): Command[] {
-    const rows = this.database.prepare("SELECT * FROM commands WHERE device_id = ? AND status = 'pending' ORDER BY requested_at ASC")
-      .all(deviceId) as CommandRow[];
     const deliveredAt = this.now();
-    this.database.prepare("UPDATE commands SET status = 'delivered', delivered_at = ? WHERE device_id = ? AND status = 'pending'")
-      .run(deliveredAt, deviceId);
-    return rows.map((row) => toCommand(row.status === "pending" ? { ...row, status: "delivered", delivered_at: deliveredAt } : row));
+    this.expireCommands(deviceId, deliveredAt);
+    const retryBefore = new Date(Date.parse(deliveredAt) - this.deliveryTimeoutMilliseconds).toISOString();
+    const rows = this.database.prepare(`
+      SELECT * FROM commands
+      WHERE device_id = ? AND (
+        status = 'pending' OR
+        (status = 'delivered' AND delivered_at <= ? AND attempt_count < ?)
+      )
+      ORDER BY requested_at ASC
+    `).all(deviceId, retryBefore, this.maximumDeliveryAttempts) as CommandRow[];
+    const update = this.database.prepare(`
+      UPDATE commands SET status = 'delivered', delivered_at = ?, attempt_count = attempt_count + 1
+      WHERE id = ?
+    `);
+    for (const row of rows) {
+      update.run(deliveredAt, row.id);
+    }
+    return rows.map((row) => toCommand({
+      ...row,
+      status: "delivered",
+      delivered_at: deliveredAt,
+      attempt_count: row.attempt_count + 1,
+    }));
   }
 
   getCommandHistory(deviceId: string): Command[] {
+    this.expireCommands(deviceId, this.now());
     const rows = this.database.prepare("SELECT * FROM commands WHERE device_id = ? ORDER BY requested_at DESC").all(deviceId) as CommandRow[];
     return rows.map(toCommand);
+  }
+
+  private expireCommands(deviceId: string, currentTime: string): void {
+    const retryBefore = new Date(Date.parse(currentTime) - this.deliveryTimeoutMilliseconds).toISOString();
+    this.database.prepare(`
+      UPDATE commands SET status = 'expired', completed_at = ?, result_message = 'Command delivery timed out'
+      WHERE device_id = ? AND status = 'delivered' AND delivered_at <= ? AND attempt_count >= ?
+    `).run(currentTime, deviceId, retryBefore, this.maximumDeliveryAttempts);
   }
 
   completeCommand(commandId: string, succeeded: boolean, message: string): Command | undefined {
@@ -237,6 +284,7 @@ function toCommand(row: CommandRow): Command {
     type: row.type,
     status: row.status,
     requestedAt: row.requested_at,
+    attemptCount: row.attempt_count,
     ...(row.delivered_at ? { deliveredAt: row.delivered_at } : {}),
     ...(row.completed_at ? { completedAt: row.completed_at } : {}),
     ...(row.result_message ? { resultMessage: row.result_message } : {}),

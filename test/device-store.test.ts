@@ -58,3 +58,36 @@ test("records device contact without replacing telemetry", () => {
   assert.equal(store.getDevice("device-1")?.capturedAt, "2026-09-19T11:59:00.000Z");
   store.close();
 });
+
+test("retries command delivery and expires it after the attempt limit", () => {
+  let currentTime = "2026-09-19T12:00:00.000Z";
+  const store = new DeviceStore(
+    ":memory:",
+    () => currentTime,
+    () => "command-1",
+    () => "123456",
+    () => "device-token",
+    60_000,
+    2,
+  );
+  store.receiveTelemetry("device-1", {
+    deviceName: "Pixel",
+    batteryPercentage: 80,
+    isCharging: false,
+    capturedAt: currentTime,
+  });
+  store.createCommand("device-1", "collectTelemetry");
+
+  assert.equal(store.getPendingCommands("device-1")[0]?.attemptCount, 1);
+
+  currentTime = "2026-09-19T12:00:30.000Z";
+  assert.equal(store.getPendingCommands("device-1").length, 0);
+
+  currentTime = "2026-09-19T12:01:01.000Z";
+  assert.equal(store.getPendingCommands("device-1")[0]?.attemptCount, 2);
+
+  currentTime = "2026-09-19T12:02:02.000Z";
+  assert.equal(store.getPendingCommands("device-1").length, 0);
+  assert.equal(store.getCommandHistory("device-1")[0]?.status, "expired");
+  store.close();
+});
