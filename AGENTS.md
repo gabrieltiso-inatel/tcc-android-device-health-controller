@@ -4,6 +4,42 @@
 
 This file defines the shared development rules for this web-server repository. Follow these instructions unless a task explicitly requires otherwise.
 
+## Project Context
+
+Este repositório contém o controlador do projeto Android Device Health, uma solução acadêmica para acompanhamento e gerenciamento de dispositivos Android em ambientes familiares.
+
+- O controlador é uma aplicação local em TypeScript, Node.js e Fastify, com persistência SQLite e interface web.
+- O agent Android inicia toda comunicação por HTTP, envia seu estado e consulta ações pendentes por polling.
+- Dispositivos são associados ao controlador por código temporário de pareamento e token.
+- O estado atual inclui identificação do dispositivo, bateria, versão do Android, capabilities, armazenamento agregado e inventário de aplicativos instalados pelo usuário.
+- Ações explícitas podem ter origem `controller` ou `device` e compartilham o mesmo histórico auditável.
+- Ações possuem entrega, retry, expiração, idempotência, resultado estruturado e erros seguros.
+- As ações atuais são `collectTelemetry`, `collectStorageSummary` e `collectAppInventory`.
+- Sincronizações automáticas representam estado observado e não devem criar entradas no histórico de ações.
+- O objetivo não é implementar um MDM completo, mas evoluir casos de uso verificáveis respeitando as limitações e a segurança da plataforma Android.
+
+## Current Direction
+
+Esta seção mantém continuidade entre sessões curtas. Consulte-a antes de propor novos trabalhos e atualize-a sempre que uma etapa for concluída, removida ou repriorizada. Registre somente o estado atual e os próximos objetivos; detalhes históricos pertencem aos commits.
+
+Concluído:
+
+- framework unificado de ações com origem `controller` ou `device`;
+- histórico compartilhado de ações;
+- telemetria, resumo de armazenamento e inventário de aplicativos;
+- pareamento, autenticação, retry, expiração e idempotência.
+
+Próximo:
+
+- automatizar sincronizações de estado sem criar histórico de ações;
+- melhorar a apresentação do histórico compartilhado.
+
+Depois:
+
+- ampliar informações e ações explícitas sobre aplicativos;
+- acessar arquivos somente com consentimento do usuário;
+- avaliar capacidades privilegiadas com Device Owner/Profile Owner.
+
 ## Communication
 
 - Write explanations and responses in concise Brazilian Portuguese.
