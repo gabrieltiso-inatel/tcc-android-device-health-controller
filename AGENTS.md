@@ -115,7 +115,7 @@ Before considering work complete:
 
 - Do not commit or push unless explicitly asked.
 - Do not add co-authors to commits.
-- Use extremely short, clear, English commit messages describing the change.
+- Use extremely short, clear commit messages in Portuguese, following the repository's existing pattern.
 - Keep each commit focused on one coherent change.
 - Do not use force push, destructive Git commands, history rewriting, or broad rebases without explicit approval.
 - Do not include unrelated formatting or refactoring in a commit.
