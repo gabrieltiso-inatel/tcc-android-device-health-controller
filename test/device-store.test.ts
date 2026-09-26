@@ -15,19 +15,20 @@ const telemetry = {
   capturedAt: "2026-09-19T11:59:00.000Z",
 };
 
-test("stores telemetry and completes a controller command", () => {
-  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "command-1");
+test("stores telemetry and completes a controller action", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "action-1");
   store.receiveTelemetry("device-1", telemetry);
 
-  const command = store.createCommand("device-1", "collectTelemetry");
+  const action = store.createAction("device-1", "collectTelemetry", "controller");
 
-  assert.equal(command?.id, "command-1");
-  assert.equal(store.getPendingCommands("device-1").length, 1);
+  assert.equal(action?.id, "action-1");
+  assert.equal(action?.origin, "controller");
+  assert.equal(store.getPendingActions("device-1").length, 1);
 
-  const completedCommand = store.completeCommand("command-1", true, "Telemetry sent");
+  const completedAction = store.completeAction("action-1", true, "Telemetry sent");
 
-  assert.equal(completedCommand?.status, "completed");
-  assert.equal(store.getPendingCommands("device-1").length, 0);
+  assert.equal(completedAction?.status, "completed");
+  assert.equal(store.getPendingActions("device-1").length, 0);
   store.close();
 });
 
@@ -35,7 +36,7 @@ test("pairs a device once and authenticates its token", () => {
   const store = new DeviceStore(
     ":memory:",
     () => "2026-09-19T12:00:00.000Z",
-    () => "command-1",
+    () => "action-1",
     () => "123456",
     () => "device-token",
   );
@@ -62,74 +63,74 @@ test("records device contact without replacing telemetry", () => {
   store.close();
 });
 
-test("retries command delivery and expires it after the attempt limit", () => {
+test("retries action delivery and expires it after the attempt limit", () => {
   let currentTime = "2026-09-19T12:00:00.000Z";
   const store = new DeviceStore(
     ":memory:",
     () => currentTime,
-    () => "command-1",
+    () => "action-1",
     () => "123456",
     () => "device-token",
     60_000,
     2,
   );
   store.receiveTelemetry("device-1", { ...telemetry, capturedAt: currentTime });
-  store.createCommand("device-1", "collectTelemetry");
+  store.createAction("device-1", "collectTelemetry", "controller");
 
-  assert.equal(store.getPendingCommands("device-1")[0]?.attemptCount, 1);
+  assert.equal(store.getPendingActions("device-1")[0]?.attemptCount, 1);
 
   currentTime = "2026-09-19T12:00:30.000Z";
-  assert.equal(store.getPendingCommands("device-1").length, 0);
+  assert.equal(store.getPendingActions("device-1").length, 0);
 
   currentTime = "2026-09-19T12:01:01.000Z";
-  assert.equal(store.getPendingCommands("device-1")[0]?.attemptCount, 2);
+  assert.equal(store.getPendingActions("device-1")[0]?.attemptCount, 2);
 
   currentTime = "2026-09-19T12:02:02.000Z";
-  assert.equal(store.getPendingCommands("device-1").length, 0);
-  assert.equal(store.getCommandHistory("device-1")[0]?.status, "expired");
+  assert.equal(store.getPendingActions("device-1").length, 0);
+  assert.equal(store.getActionHistory("device-1")[0]?.status, "expired");
   store.close();
 });
 
-test("stores a safe command error code", () => {
-  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "command-1");
+test("stores a safe action error code", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "action-1");
   store.receiveTelemetry("device-1", telemetry);
-  store.createCommand("device-1", "collectTelemetry");
+  store.createAction("device-1", "collectTelemetry", "controller");
 
-  const command = store.completeCommand("command-1", false, "Command execution failed", "execution_failed");
+  const action = store.completeAction("action-1", false, "Action execution failed", "execution_failed");
 
-  assert.equal(command?.status, "failed");
-  assert.equal(command?.resultCode, "execution_failed");
-  assert.equal(command?.resultMessage, "Command execution failed");
+  assert.equal(action?.status, "failed");
+  assert.equal(action?.resultCode, "execution_failed");
+  assert.equal(action?.resultMessage, "Action execution failed");
   store.close();
 });
 
-test("stores a structured command result", () => {
-  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "command-1");
+test("stores a structured action result", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "action-1");
   store.receiveTelemetry("device-1", telemetry);
-  store.createCommand("device-1", "collectStorageSummary");
+  store.createAction("device-1", "collectStorageSummary", "controller");
 
-  const command = store.completeCommand(
-    "command-1",
+  const action = store.completeAction(
+    "action-1",
     true,
     "Storage summary collected",
     undefined,
     { totalBytes: 100, usedBytes: 60, availableBytes: 40, capturedAt: "2026-09-19T12:00:00.000Z" },
   );
 
-  assert.deepEqual(command?.result, {
+  assert.deepEqual(action?.result, {
     totalBytes: 100,
     usedBytes: 60,
     availableBytes: 40,
     capturedAt: "2026-09-19T12:00:00.000Z",
   });
-  assert.deepEqual(store.getCommandHistory("device-1")[0]?.result, command?.result);
+  assert.deepEqual(store.getActionHistory("device-1")[0]?.result, action?.result);
   store.close();
 });
 
 test("stores an app inventory result", () => {
-  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "command-1");
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "action-1");
   store.receiveTelemetry("device-1", telemetry);
-  store.createCommand("device-1", "collectAppInventory");
+  store.createAction("device-1", "collectAppInventory", "controller");
   const inventory = {
     capturedAt: "2026-09-19T12:00:00.000Z",
     apps: [{
@@ -142,17 +143,30 @@ test("stores an app inventory result", () => {
     }],
   };
 
-  const command = store.completeCommand("command-1", true, "App inventory collected", undefined, inventory);
+  const action = store.completeAction("action-1", true, "App inventory collected", undefined, inventory);
 
-  assert.deepEqual(command?.result, inventory);
-  assert.deepEqual(store.getCommandHistory("device-1")[0]?.result, inventory);
+  assert.deepEqual(action?.result, inventory);
+  assert.deepEqual(store.getActionHistory("device-1")[0]?.result, inventory);
   store.close();
 });
 
-test("rejects a command that the device does not support", () => {
+test("rejects an action that the device does not support", () => {
   const store = new DeviceStore(":memory:");
   store.receiveTelemetry("device-1", { ...telemetry, capabilities: [] });
 
-  assert.equal(store.createCommand("device-1", "collectTelemetry"), undefined);
+  assert.equal(store.createAction("device-1", "collectTelemetry", "controller"), undefined);
+  store.close();
+});
+
+test("device actions are recorded without entering the delivery queue", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "action-1");
+  store.receiveTelemetry("device-1", telemetry);
+
+  const action = store.createAction("device-1", "collectStorageSummary", "device");
+
+  assert.equal(action?.origin, "device");
+  assert.equal(action?.status, "delivered");
+  assert.equal(store.getPendingActions("device-1").length, 0);
+  assert.equal(store.getActionHistory("device-1")[0]?.origin, "device");
   store.close();
 });

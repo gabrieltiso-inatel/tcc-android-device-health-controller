@@ -16,7 +16,7 @@ const telemetry = {
   capturedAt: "2026-09-19T12:00:00.000Z",
 };
 
-test("accepts telemetry and creates a collection command", async () => {
+test("accepts telemetry and creates collection actions", async () => {
   const store = new DeviceStore(":memory:");
   const server = createControllerServer(store);
   await server.ready();
@@ -40,34 +40,35 @@ test("accepts telemetry and creates a collection command", async () => {
     });
     assert.equal(telemetryResponse.statusCode, 200);
 
-    const commandResponse = await server.inject({
+    const actionResponse = await server.inject({
       method: "POST",
-      url: "/api/devices/device-1/commands",
+      url: "/api/devices/device-1/actions",
       payload: { type: "collectTelemetry" },
     });
-    assert.equal(commandResponse.statusCode, 201);
+    assert.equal(actionResponse.statusCode, 201);
+    assert.equal(actionResponse.json().action.origin, "controller");
 
-    const storageCommandResponse = await server.inject({
+    const storageActionResponse = await server.inject({
       method: "POST",
-      url: "/api/devices/device-1/commands",
+      url: "/api/devices/device-1/actions",
       payload: { type: "collectStorageSummary" },
     });
-    assert.equal(storageCommandResponse.statusCode, 201);
-    const storageCommandId = storageCommandResponse.json().command.id as string;
+    assert.equal(storageActionResponse.statusCode, 201);
+    const storageActionId = storageActionResponse.json().action.id as string;
 
-    const commandsResponse = await server.inject({
+    const actionsResponse = await server.inject({
       method: "GET",
-      url: "/api/devices/device-1/commands",
+      url: "/api/devices/device-1/actions",
       headers: { authorization: `Bearer ${token}` },
     });
     assert.deepEqual(
-      commandsResponse.json().commands.map((command: { type: string }) => command.type),
+      actionsResponse.json().actions.map((action: { type: string }) => action.type),
       ["collectTelemetry", "collectStorageSummary"],
     );
 
     const resultResponse = await server.inject({
       method: "POST",
-      url: `/api/commands/${storageCommandId}/result`,
+      url: `/api/actions/${storageActionId}/result`,
       headers: { authorization: `Bearer ${token}` },
       payload: {
         succeeded: true,
@@ -81,23 +82,23 @@ test("accepts telemetry and creates a collection command", async () => {
       },
     });
     assert.equal(resultResponse.statusCode, 200);
-    assert.equal(resultResponse.json().command.result.availableBytes, 40);
+    assert.equal(resultResponse.json().action.result.availableBytes, 40);
 
-    const appCommandResponse = await server.inject({
+    const appActionResponse = await server.inject({
       method: "POST",
-      url: "/api/devices/device-1/commands",
+      url: "/api/devices/device-1/actions",
       payload: { type: "collectAppInventory" },
     });
-    assert.equal(appCommandResponse.statusCode, 201);
-    const appCommandId = appCommandResponse.json().command.id as string;
+    assert.equal(appActionResponse.statusCode, 201);
+    const appActionId = appActionResponse.json().action.id as string;
     await server.inject({
       method: "GET",
-      url: "/api/devices/device-1/commands",
+      url: "/api/devices/device-1/actions",
       headers: { authorization: `Bearer ${token}` },
     });
     const appResultResponse = await server.inject({
       method: "POST",
-      url: `/api/commands/${appCommandId}/result`,
+      url: `/api/actions/${appActionId}/result`,
       headers: { authorization: `Bearer ${token}` },
       payload: {
         succeeded: true,
@@ -117,6 +118,20 @@ test("accepts telemetry and creates a collection command", async () => {
     });
     assert.equal(appResultResponse.statusCode, 200);
 
+    const deviceActionResponse = await server.inject({
+      method: "POST",
+      url: "/api/devices/device-1/actions",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { type: "collectTelemetry" },
+    });
+    assert.equal(deviceActionResponse.statusCode, 201);
+    assert.equal(deviceActionResponse.json().action.origin, "device");
+    assert.equal(deviceActionResponse.json().action.status, "delivered");
+
+    const historyResponse = await server.inject({ method: "GET", url: "/api/devices/device-1/history" });
+    assert.equal(historyResponse.statusCode, 200);
+    assert.equal(historyResponse.json().actions[0].origin, "device");
+
     const detailResponse = await server.inject({ method: "GET", url: "/devices/device-1" });
     assert.equal(detailResponse.statusCode, 200);
     assert.match(detailResponse.body, /Storage summary collected/);
@@ -125,6 +140,7 @@ test("accepts telemetry and creates a collection command", async () => {
     assert.match(detailResponse.body, /Notes/);
     assert.match(detailResponse.body, /com\.example\.notes/);
     assert.match(detailResponse.body, /Update apps/);
+    assert.match(detailResponse.body, /Origin device/);
 
     const unauthorizedResponse = await server.inject({
       method: "POST",

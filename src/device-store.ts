@@ -10,15 +10,16 @@ export type Telemetry = {
   androidVersion: string;
   apiLevel: number;
   agentVersion: string;
-  capabilities: CommandType[];
+  capabilities: ActionType[];
   batteryPercentage: number;
   isCharging: boolean;
   capturedAt: string;
 };
 
 export type Device = Telemetry & { id: string; lastSeenAt: string };
-export type CommandType = "collectTelemetry" | "collectStorageSummary" | "collectAppInventory";
-export type CommandStatus = "pending" | "delivered" | "completed" | "failed" | "expired";
+export type ActionType = "collectTelemetry" | "collectStorageSummary" | "collectAppInventory";
+export type ActionOrigin = "controller" | "device";
+export type ActionStatus = "pending" | "delivered" | "completed" | "failed" | "expired";
 export type StorageSummary = {
   totalBytes: number;
   usedBytes: number;
@@ -37,19 +38,20 @@ export type AppInventory = {
   apps: InstalledApp[];
   capturedAt: string;
 };
-export type CommandResult = StorageSummary | AppInventory;
-export type Command = {
+export type ActionResult = StorageSummary | AppInventory;
+export type Action = {
   id: string;
   deviceId: string;
-  type: CommandType;
-  status: CommandStatus;
+  type: ActionType;
+  origin: ActionOrigin;
+  status: ActionStatus;
   requestedAt: string;
   attemptCount: number;
   deliveredAt?: string;
   completedAt?: string;
   resultCode?: string;
   resultMessage?: string;
-  result?: CommandResult;
+  result?: ActionResult;
 };
 
 export type PairingCode = {
@@ -77,11 +79,12 @@ type DeviceRow = {
   capabilities_json: string;
 };
 
-type CommandRow = {
+type ActionRow = {
   id: string;
   device_id: string;
-  type: CommandType;
-  status: CommandStatus;
+  type: ActionType;
+  origin: ActionOrigin;
+  status: ActionStatus;
   requested_at: string;
   delivered_at: string | null;
   completed_at: string | null;
@@ -113,6 +116,7 @@ export class DeviceStore {
       mkdirSync(dirname(databasePath), { recursive: true });
     }
     this.database = new DatabaseSync(databasePath);
+    this.renameCommandsTable();
     this.database.exec(`
       CREATE TABLE IF NOT EXISTS devices (
         id TEXT PRIMARY KEY, device_name TEXT NOT NULL, battery_percentage INTEGER NOT NULL,
@@ -121,8 +125,9 @@ export class DeviceStore {
         android_version TEXT NOT NULL DEFAULT '', api_level INTEGER NOT NULL DEFAULT 0,
         agent_version TEXT NOT NULL DEFAULT '', capabilities_json TEXT NOT NULL DEFAULT '[]'
       );
-      CREATE TABLE IF NOT EXISTS commands (
-        id TEXT PRIMARY KEY, device_id TEXT NOT NULL, type TEXT NOT NULL, status TEXT NOT NULL,
+      CREATE TABLE IF NOT EXISTS actions (
+        id TEXT PRIMARY KEY, device_id TEXT NOT NULL, type TEXT NOT NULL,
+        origin TEXT NOT NULL, status TEXT NOT NULL,
         requested_at TEXT NOT NULL, delivered_at TEXT, completed_at TEXT, result_code TEXT, result_message TEXT,
         result_json TEXT,
         attempt_count INTEGER NOT NULL DEFAULT 0,
@@ -136,9 +141,10 @@ export class DeviceStore {
         paired_at TEXT NOT NULL
       );
     `);
-    this.addColumnIfMissing("commands", "attempt_count", "INTEGER NOT NULL DEFAULT 0");
-    this.addColumnIfMissing("commands", "result_code", "TEXT");
-    this.addColumnIfMissing("commands", "result_json", "TEXT");
+    this.addColumnIfMissing("actions", "origin", "TEXT NOT NULL DEFAULT 'controller'");
+    this.addColumnIfMissing("actions", "attempt_count", "INTEGER NOT NULL DEFAULT 0");
+    this.addColumnIfMissing("actions", "result_code", "TEXT");
+    this.addColumnIfMissing("actions", "result_json", "TEXT");
     this.addColumnIfMissing("devices", "manufacturer", "TEXT NOT NULL DEFAULT ''");
     this.addColumnIfMissing("devices", "model", "TEXT NOT NULL DEFAULT ''");
     this.addColumnIfMissing("devices", "android_version", "TEXT NOT NULL DEFAULT ''");
@@ -149,6 +155,18 @@ export class DeviceStore {
 
   close() {
     this.database.close();
+  }
+
+  private renameCommandsTable(): void {
+    const commandsTable = this.database.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'commands'",
+    ).get();
+    const actionsTable = this.database.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'actions'",
+    ).get();
+    if (commandsTable && !actionsTable) {
+      this.database.exec("ALTER TABLE commands RENAME TO actions");
+    }
   }
 
   private addColumnIfMissing(table: string, column: string, definition: string): void {
@@ -197,12 +215,12 @@ export class DeviceStore {
     return row ? matchesToken(token, row.token_hash) : false;
   }
 
-  authenticateCommand(commandId: string, token: string): boolean {
+  authenticateAction(actionId: string, token: string): boolean {
     const row = this.database.prepare(`
-      SELECT credentials.token_hash FROM commands
-      JOIN device_credentials credentials ON credentials.device_id = commands.device_id
-      WHERE commands.id = ?
-    `).get(commandId) as { token_hash: string } | undefined;
+      SELECT credentials.token_hash FROM actions
+      JOIN device_credentials credentials ON credentials.device_id = actions.device_id
+      WHERE actions.id = ?
+    `).get(actionId) as { token_hash: string } | undefined;
     return row ? matchesToken(token, row.token_hash) : false;
   }
 
@@ -250,43 +268,57 @@ export class DeviceStore {
     this.database.prepare("UPDATE devices SET last_seen_at = ? WHERE id = ?").run(this.now(), deviceId);
   }
 
-  createCommand(deviceId: string, type: CommandType): Command | undefined {
-    if (!this.supportsCommand(deviceId, type)) {
+  createAction(deviceId: string, type: ActionType, origin: ActionOrigin): Action | undefined {
+    if (!this.supportsAction(deviceId, type)) {
       return undefined;
     }
-    const command: Command = {
+    const requestedAt = this.now();
+    const action: Action = {
       id: this.createIdentifier(),
       deviceId,
       type,
-      status: "pending",
-      requestedAt: this.now(),
-      attemptCount: 0,
+      origin,
+      status: origin === "controller" ? "pending" : "delivered",
+      requestedAt,
+      attemptCount: origin === "controller" ? 0 : 1,
+      ...(origin === "device" ? { deliveredAt: requestedAt } : {}),
     };
-    this.database.prepare("INSERT INTO commands (id, device_id, type, status, requested_at) VALUES (?, ?, ?, ?, ?)")
-      .run(command.id, command.deviceId, command.type, command.status, command.requestedAt);
-    return command;
+    this.database.prepare(`
+      INSERT INTO actions (id, device_id, type, origin, status, requested_at, delivered_at, attempt_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      action.id,
+      action.deviceId,
+      action.type,
+      action.origin,
+      action.status,
+      action.requestedAt,
+      action.deliveredAt ?? null,
+      action.attemptCount,
+    );
+    return action;
   }
 
-  getPendingCommands(deviceId: string): Command[] {
+  getPendingActions(deviceId: string): Action[] {
     const deliveredAt = this.now();
-    this.expireCommands(deviceId, deliveredAt);
+    this.expireActions(deviceId, deliveredAt);
     const retryBefore = new Date(Date.parse(deliveredAt) - this.deliveryTimeoutMilliseconds).toISOString();
     const rows = this.database.prepare(`
-      SELECT * FROM commands
-      WHERE device_id = ? AND (
+      SELECT * FROM actions
+      WHERE device_id = ? AND origin = 'controller' AND (
         status = 'pending' OR
         (status = 'delivered' AND delivered_at <= ? AND attempt_count < ?)
       )
       ORDER BY requested_at ASC
-    `).all(deviceId, retryBefore, this.maximumDeliveryAttempts) as CommandRow[];
+    `).all(deviceId, retryBefore, this.maximumDeliveryAttempts) as ActionRow[];
     const update = this.database.prepare(`
-      UPDATE commands SET status = 'delivered', delivered_at = ?, attempt_count = attempt_count + 1
+      UPDATE actions SET status = 'delivered', delivered_at = ?, attempt_count = attempt_count + 1
       WHERE id = ?
     `);
     for (const row of rows) {
       update.run(deliveredAt, row.id);
     }
-    return rows.map((row) => toCommand({
+    return rows.map((row) => toAction({
       ...row,
       status: "delivered",
       delivered_at: deliveredAt,
@@ -294,43 +326,49 @@ export class DeviceStore {
     }));
   }
 
-  supportsCommand(deviceId: string, type: CommandType): boolean {
+  supportsAction(deviceId: string, type: ActionType): boolean {
     return this.getDevice(deviceId)?.capabilities.includes(type) ?? false;
   }
 
-  getCommandHistory(deviceId: string): Command[] {
-    this.expireCommands(deviceId, this.now());
-    const rows = this.database.prepare("SELECT * FROM commands WHERE device_id = ? ORDER BY requested_at DESC").all(deviceId) as CommandRow[];
-    return rows.map(toCommand);
+  getActionHistory(deviceId: string): Action[] {
+    this.expireActions(deviceId, this.now());
+    const rows = this.database.prepare("SELECT * FROM actions WHERE device_id = ? ORDER BY requested_at DESC").all(deviceId) as ActionRow[];
+    return rows.map(toAction);
   }
 
-  private expireCommands(deviceId: string, currentTime: string): void {
+  private expireActions(deviceId: string, currentTime: string): void {
     const retryBefore = new Date(Date.parse(currentTime) - this.deliveryTimeoutMilliseconds).toISOString();
     this.database.prepare(`
-      UPDATE commands SET status = 'expired', completed_at = ?, result_code = 'delivery_timeout',
-      result_message = 'Command delivery timed out'
-      WHERE device_id = ? AND status = 'delivered' AND delivered_at <= ? AND attempt_count >= ?
+      UPDATE actions SET status = 'expired', completed_at = ?, result_code = 'execution_timeout',
+      result_message = 'Action execution timed out'
+      WHERE device_id = ? AND origin = 'device' AND status = 'delivered' AND delivered_at <= ?
+    `).run(currentTime, deviceId, retryBefore);
+    this.database.prepare(`
+      UPDATE actions SET status = 'expired', completed_at = ?, result_code = 'delivery_timeout',
+      result_message = 'Action delivery timed out'
+      WHERE device_id = ? AND origin = 'controller' AND status = 'delivered'
+      AND delivered_at <= ? AND attempt_count >= ?
     `).run(currentTime, deviceId, retryBefore, this.maximumDeliveryAttempts);
   }
 
-  completeCommand(
-    commandId: string,
+  completeAction(
+    actionId: string,
     succeeded: boolean,
     message: string,
     resultCode?: string,
-    result?: CommandResult,
-  ): Command | undefined {
-    const row = this.database.prepare("SELECT * FROM commands WHERE id = ? AND status IN ('pending', 'delivered')")
-      .get(commandId) as CommandRow | undefined;
+    result?: ActionResult,
+  ): Action | undefined {
+    const row = this.database.prepare("SELECT * FROM actions WHERE id = ? AND status IN ('pending', 'delivered')")
+      .get(actionId) as ActionRow | undefined;
     if (!row) {
       return undefined;
     }
     const completedAt = this.now();
-    const status: CommandStatus = succeeded ? "completed" : "failed";
+    const status: ActionStatus = succeeded ? "completed" : "failed";
     const resultJson = succeeded && result ? JSON.stringify(result) : null;
-    this.database.prepare("UPDATE commands SET status = ?, completed_at = ?, result_code = ?, result_message = ?, result_json = ? WHERE id = ?")
-      .run(status, completedAt, resultCode ?? null, message, resultJson, commandId);
-    return toCommand({
+    this.database.prepare("UPDATE actions SET status = ?, completed_at = ?, result_code = ?, result_message = ?, result_json = ? WHERE id = ?")
+      .run(status, completedAt, resultCode ?? null, message, resultJson, actionId);
+    return toAction({
       ...row,
       status,
       completed_at: completedAt,
@@ -360,7 +398,7 @@ function toDevice(row: DeviceRow): Device {
     androidVersion: row.android_version,
     apiLevel: row.api_level,
     agentVersion: row.agent_version,
-    capabilities: JSON.parse(row.capabilities_json) as CommandType[],
+    capabilities: JSON.parse(row.capabilities_json) as ActionType[],
     batteryPercentage: row.battery_percentage,
     isCharging: Boolean(row.is_charging),
     capturedAt: row.captured_at,
@@ -368,11 +406,12 @@ function toDevice(row: DeviceRow): Device {
   };
 }
 
-function toCommand(row: CommandRow): Command {
+function toAction(row: ActionRow): Action {
   return {
     id: row.id,
     deviceId: row.device_id,
     type: row.type,
+    origin: row.origin,
     status: row.status,
     requestedAt: row.requested_at,
     attemptCount: row.attempt_count,
@@ -380,6 +419,6 @@ function toCommand(row: CommandRow): Command {
     ...(row.completed_at ? { completedAt: row.completed_at } : {}),
     ...(row.result_code ? { resultCode: row.result_code } : {}),
     ...(row.result_message ? { resultMessage: row.result_message } : {}),
-    ...(row.result_json ? { result: JSON.parse(row.result_json) as CommandResult } : {}),
+    ...(row.result_json ? { result: JSON.parse(row.result_json) as ActionResult } : {}),
   };
 }

@@ -13,7 +13,7 @@ npm install
 npm run dev
 ```
 
-Abra `http://localhost:3000` no navegador. A tela inicial lista os dispositivos; selecione um dispositivo para ver seu estado atual e o histórico de comandos.
+Abra `http://localhost:3000` no navegador. A tela inicial lista os dispositivos; selecione um dispositivo para ver seu estado atual e o histórico de ações.
 
 ## Validação
 
@@ -30,23 +30,23 @@ npm run check
 | `POST` | `/api/pairing-codes` | Cria um código temporário de pareamento. |
 | `POST` | `/api/devices/pair` | Pareia um agente e entrega seu token. |
 | `POST` | `/api/devices/{deviceId}/telemetry` | Recebe estado, versão e capacidades do agente. |
-| `GET` | `/api/devices/{deviceId}/commands` | Entrega comandos pendentes ao agente. |
-| `POST` | `/api/devices/{deviceId}/commands` | Cria uma ação informada nas capabilities do agente. |
-| `POST` | `/api/commands/{commandId}/result` | Registra o resultado de um comando. |
-| `GET` | `/api/devices/{deviceId}/history` | Lista o histórico de comandos do dispositivo. |
+| `GET` | `/api/devices/{deviceId}/actions` | Entrega ações pendentes ao agente. |
+| `POST` | `/api/devices/{deviceId}/actions` | Cria uma ação com origem no controlador ou dispositivo. |
+| `POST` | `/api/actions/{actionId}/result` | Registra o resultado de uma ação. |
+| `GET` | `/api/devices/{deviceId}/history` | Lista o histórico de ações do dispositivo. |
 
-O agente deve enviar o token recebido no pareamento através do header `Authorization: Bearer <token>` nas chamadas de telemetria, consulta de comandos e resultado de comando.
+O agente deve enviar o token recebido no pareamento através do header `Authorization: Bearer <token>` nas chamadas de telemetria, ações e histórico.
 
-O dashboard diferencia `Last contact`, atualizado quando o agente consulta comandos, de `Telemetry captured`, que representa o instante da última coleta recebida. Na tela do dispositivo, a seção `Storage` permite solicitar e acompanhar a atualização do resumo de armazenamento.
+O dashboard diferencia `Last contact`, atualizado quando o agente consulta ações, de `Telemetry captured`, que representa o instante da última coleta recebida. Na tela do dispositivo, as seções de armazenamento e aplicativos permitem solicitar atualizações explícitas.
 
-Comandos entregues sem confirmação voltam a ficar disponíveis após 60 segundos. Depois de três entregas sem resultado, o controlador marca o comando como `expired`.
+Ações do controlador entregues sem confirmação voltam a ficar disponíveis após 60 segundos. Depois de três entregas sem resultado, o controlador marca a ação como `expired`.
 
-Falhas definitivas usam códigos internos seguros, como `unsupported_command` e `execution_failed`. Falhas temporárias de conexão não encerram o comando e são tentadas novamente.
+Falhas definitivas usam códigos internos seguros, como `unsupported_action` e `execution_failed`. Falhas temporárias de conexão não encerram a ação e são tentadas novamente.
 
-O controlador cria comandos somente quando a capacidade correspondente foi informada pelo agente.
+O controlador cria ações somente quando a capacidade correspondente foi informada pelo agente.
 
 O resultado de `collectStorageSummary` contém apenas totais agregados de espaço total, usado e disponível. Nenhum arquivo é listado ou acessado.
 
 O resultado de `collectAppInventory` contém nome, pacote, versão e datas de instalação e atualização dos aplicativos instalados pelo usuário. Aplicativos do sistema não são incluídos.
 
-Os dispositivos e comandos são persistidos em `data/controller.db` usando SQLite local.
+Os dispositivos e ações são persistidos em `data/controller.db` usando SQLite local.

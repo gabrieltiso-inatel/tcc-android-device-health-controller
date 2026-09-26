@@ -2,8 +2,8 @@ import Fastify, { type FastifyReply } from "fastify";
 import {
   DeviceStore,
   type AppInventory,
-  type CommandResult,
-  type CommandType,
+  type ActionResult,
+  type ActionType,
   type StorageSummary,
   type Telemetry,
 } from "./device-store.js";
@@ -36,7 +36,7 @@ export function createControllerServer(store = new DeviceStore()) {
     if (!device) {
       return reply.code(404).type("text/html; charset=utf-8").send("<h1>Device not found</h1>");
     }
-    return reply.type("text/html; charset=utf-8").send(renderDeviceDetail(device, store.getCommandHistory(device.id)));
+    return reply.type("text/html; charset=utf-8").send(renderDeviceDetail(device, store.getActionHistory(device.id)));
   });
 
   app.post<{ Params: { deviceId: string }; Body: Telemetry }>(
@@ -50,49 +50,60 @@ export function createControllerServer(store = new DeviceStore()) {
     },
   );
 
-  app.get<{ Params: { deviceId: string } }>("/api/devices/:deviceId/commands", async (request, reply) => {
+  app.get<{ Params: { deviceId: string } }>("/api/devices/:deviceId/actions", async (request, reply) => {
     if (!authenticateDeviceRequest(request.headers.authorization, request.params.deviceId, store)) {
       return unauthorized(reply);
     }
     store.recordDeviceContact(request.params.deviceId);
-    return { commands: store.getPendingCommands(request.params.deviceId) };
+    return { actions: store.getPendingActions(request.params.deviceId) };
   });
 
-  app.get<{ Params: { deviceId: string } }>("/api/devices/:deviceId/history", async (request) => ({
-    commands: store.getCommandHistory(request.params.deviceId),
-  }));
+  app.get<{ Params: { deviceId: string } }>("/api/devices/:deviceId/history", async (request, reply) => {
+    if (
+      request.headers.authorization &&
+      !authenticateDeviceRequest(request.headers.authorization, request.params.deviceId, store)
+    ) {
+      return unauthorized(reply);
+    }
+    return { actions: store.getActionHistory(request.params.deviceId) };
+  });
 
-  app.post<{ Params: { deviceId: string }; Body: { type: CommandType } }>(
-    "/api/devices/:deviceId/commands",
-    { schema: { body: commandSchema } },
+  app.post<{ Params: { deviceId: string }; Body: { type: ActionType } }>(
+    "/api/devices/:deviceId/actions",
+    { schema: { body: actionSchema } },
     async (request, reply) => {
       if (!store.getDevice(request.params.deviceId)) {
         return reply.code(404).send({ message: "Device not found" });
       }
-      if (!store.supportsCommand(request.params.deviceId, request.body.type)) {
-        return reply.code(409).send({ message: "Command is not supported by this device" });
+      const authorization = request.headers.authorization;
+      const origin = authorization ? "device" : "controller";
+      if (authorization && !authenticateDeviceRequest(authorization, request.params.deviceId, store)) {
+        return unauthorized(reply);
       }
-      const command = store.createCommand(request.params.deviceId, request.body.type);
-      return reply.code(201).send({ command });
+      if (!store.supportsAction(request.params.deviceId, request.body.type)) {
+        return reply.code(409).send({ message: "Action is not supported by this device" });
+      }
+      const action = store.createAction(request.params.deviceId, request.body.type, origin);
+      return reply.code(201).send({ action });
     },
   );
 
-  app.post<{ Params: { commandId: string }; Body: { succeeded: boolean; message: string; errorCode?: string; result?: CommandResult } }>(
-    "/api/commands/:commandId/result",
-    { schema: { body: commandResultSchema } },
+  app.post<{ Params: { actionId: string }; Body: { succeeded: boolean; message: string; errorCode?: string; result?: ActionResult } }>(
+    "/api/actions/:actionId/result",
+    { schema: { body: actionResultSchema } },
     async (request, reply) => {
       const token = readBearerToken(request.headers.authorization);
-      if (!token || !store.authenticateCommand(request.params.commandId, token)) {
+      if (!token || !store.authenticateAction(request.params.actionId, token)) {
         return unauthorized(reply);
       }
-      const command = store.completeCommand(
-        request.params.commandId,
+      const action = store.completeAction(
+        request.params.actionId,
         request.body.succeeded,
         request.body.message,
         request.body.errorCode,
         request.body.result,
       );
-      return command ? { command } : reply.code(404).send({ message: "Pending command not found" });
+      return action ? { action } : reply.code(404).send({ message: "Pending action not found" });
     },
   );
 
@@ -149,7 +160,7 @@ const pairingSchema = {
   },
 } as const;
 
-const commandSchema = {
+const actionSchema = {
   type: "object",
   additionalProperties: false,
   required: ["type"],
@@ -194,7 +205,7 @@ const appInventorySchema = {
   },
 } as const;
 
-const commandResultSchema = {
+const actionResultSchema = {
   type: "object",
   additionalProperties: false,
   required: ["succeeded", "message"],
@@ -203,7 +214,7 @@ const commandResultSchema = {
     message: { type: "string", minLength: 1, maxLength: 500 },
     errorCode: {
       type: "string",
-      enum: ["unsupported_command", "execution_failed"],
+      enum: ["unsupported_action", "execution_failed"],
     },
     result: {
       oneOf: [storageSummarySchema, appInventorySchema],
@@ -240,48 +251,48 @@ function renderDashboard(devices: ReturnType<typeof withConnectionStatus>[]) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Device Health Controller</title><style>${styles()}</style></head><body><main><h1>Devices</h1><p class="hint">Select a device to view details and action history.</p><section class="card"><button type="button" onclick="createPairingCode()">Add device</button><p id="pairing-code" class="hint"></p></section><table><thead><tr><th>Device</th><th>Battery</th><th>Last contact</th><th>Telemetry captured</th></tr></thead><tbody>${rows}</tbody></table></main><script>async function createPairingCode(){const response=await fetch('/api/pairing-codes',{method:'POST'});const body=await response.json();document.getElementById('pairing-code').textContent='Pairing code: '+body.pairingCode.code+' (expires in 5 minutes)'}</script></body></html>`;
 }
 
-function renderDeviceDetail(device: ReturnType<DeviceStore["listDevices"]>[number], commands: ReturnType<DeviceStore["getCommandHistory"]>) {
-  const storageCommands = commands.filter((command) => command.type === "collectStorageSummary");
-  const latestStorage = storageCommands
-    .find((command) => command.status === "completed" && isStorageSummary(command.result))?.result as StorageSummary | undefined;
-  const activeStorageCommand = storageCommands.find(
-    (command) => command.status === "pending" || command.status === "delivered",
+function renderDeviceDetail(device: ReturnType<DeviceStore["listDevices"]>[number], actions: ReturnType<DeviceStore["getActionHistory"]>) {
+  const storageActions = actions.filter((action) => action.type === "collectStorageSummary");
+  const latestStorage = storageActions
+    .find((action) => action.status === "completed" && isStorageSummary(action.result))?.result as StorageSummary | undefined;
+  const activeStorageAction = storageActions.find(
+    (action) => action.status === "pending" || action.status === "delivered",
   );
   const supportsStorageSummary = device.capabilities.includes("collectStorageSummary");
   const storageContent = latestStorage
     ? `<dl><div><dt>Used</dt><dd>${formatBytes(latestStorage.usedBytes)} of ${formatBytes(latestStorage.totalBytes)}</dd></div><div><dt>Available</dt><dd>${formatBytes(latestStorage.availableBytes)}</dd></div></dl><p class="hint">Updated ${escapeHtml(latestStorage.capturedAt)}</p>`
     : '<p class="hint">No storage summary collected yet.</p>';
   const storageAction = supportsStorageSummary
-    ? `<button id="storage-action" type="button"${activeStorageCommand ? " disabled" : ""}>${activeStorageCommand ? "Update in progress…" : "Update storage"}</button><p id="storage-status" class="hint" role="status">${activeStorageCommand ? "Waiting for the device to respond." : ""}</p>`
+    ? `<button id="storage-action" type="button"${activeStorageAction ? " disabled" : ""}>${activeStorageAction ? "Update in progress…" : "Update storage"}</button><p id="storage-status" class="hint" role="status">${activeStorageAction ? "Waiting for the device to respond." : ""}</p>`
     : '<p class="hint">This agent does not support storage collection.</p>';
-  const appCommands = commands.filter((command) => command.type === "collectAppInventory");
-  const latestAppInventory = appCommands
-    .find((command) => command.status === "completed" && isAppInventory(command.result))?.result as AppInventory | undefined;
-  const activeAppCommand = appCommands.find(
-    (command) => command.status === "pending" || command.status === "delivered",
+  const appActions = actions.filter((action) => action.type === "collectAppInventory");
+  const latestAppInventory = appActions
+    .find((action) => action.status === "completed" && isAppInventory(action.result))?.result as AppInventory | undefined;
+  const activeAppAction = appActions.find(
+    (action) => action.status === "pending" || action.status === "delivered",
   );
   const supportsAppInventory = device.capabilities.includes("collectAppInventory");
   const appRows = latestAppInventory?.apps.length
     ? latestAppInventory.apps.map((app) => `<tr><td>${escapeHtml(app.name)}</td><td>${escapeHtml(app.packageName)}</td><td>${escapeHtml(app.versionName || String(app.versionCode))}</td><td>${escapeHtml(app.updatedAt)}</td></tr>`).join("")
     : '<tr><td colspan="4">No app inventory collected yet.</td></tr>';
   const appAction = supportsAppInventory
-    ? `<button id="apps-action" type="button"${activeAppCommand ? " disabled" : ""}>${activeAppCommand ? "Update in progress…" : "Update apps"}</button><p id="apps-status" class="hint" role="status">${activeAppCommand ? "Waiting for the device to respond." : ""}</p>`
+    ? `<button id="apps-action" type="button"${activeAppAction ? " disabled" : ""}>${activeAppAction ? "Update in progress…" : "Update apps"}</button><p id="apps-status" class="hint" role="status">${activeAppAction ? "Waiting for the device to respond." : ""}</p>`
     : '<p class="hint">This agent does not support app inventory.</p>';
   const appUpdatedAt = latestAppInventory
     ? `<p class="hint">${latestAppInventory.apps.length} user-installed apps · Updated ${escapeHtml(latestAppInventory.capturedAt)}</p>`
     : "";
-  const history = commands.length
-    ? commands.map((command) => `<li><strong>${escapeHtml(command.type)}</strong> — ${escapeHtml(command.status)}<br><span class="hint">Requested ${escapeHtml(command.requestedAt)} · Attempts ${command.attemptCount}${command.completedAt ? ` · Completed ${escapeHtml(command.completedAt)}` : ""}</span>${command.resultMessage ? `<br>${escapeHtml(command.resultMessage)}` : ""}</li>`).join("")
+  const history = actions.length
+    ? actions.map((action) => `<li><strong>${escapeHtml(action.type)}</strong> — ${escapeHtml(action.status)}<br><span class="hint">Origin ${escapeHtml(action.origin)} · Requested ${escapeHtml(action.requestedAt)} · Attempts ${action.attemptCount}${action.completedAt ? ` · Completed ${escapeHtml(action.completedAt)}` : ""}</span>${action.resultMessage ? `<br>${escapeHtml(action.resultMessage)}` : ""}</li>`).join("")
     : "<li>No actions recorded yet.</li>";
   const deviceId = JSON.stringify(device.id).replaceAll("<", "\\u003c");
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(device.deviceName)} — Device Health</title><style>${styles()}</style></head><body><main><a href="/">← All devices</a><h1>${escapeHtml(device.deviceName)}</h1><section class="card"><h2>Current state</h2><p><strong>Battery:</strong> ${device.batteryPercentage}% (${device.isCharging ? "charging" : "discharging"})</p><p><strong>Last contact:</strong> ${escapeHtml(device.lastSeenAt)}</p><p><strong>Telemetry captured:</strong> ${escapeHtml(device.capturedAt)}</p><p><strong>Device ID:</strong> ${escapeHtml(device.id)}</p></section><section class="card"><h2>Storage</h2>${storageContent}${storageAction}</section><section class="card"><h2>Installed apps</h2>${appUpdatedAt}<div class="table-scroll"><table><thead><tr><th>App</th><th>Package</th><th>Version</th><th>Updated</th></tr></thead><tbody>${appRows}</tbody></table></div>${appAction}</section><section class="card"><h2>Action history</h2><ul>${history}</ul></section></main><script>const deviceId=${deviceId};async function checkCommand(type){try{const response=await fetch('/api/devices/'+encodeURIComponent(deviceId)+'/history');if(!response.ok)throw new Error();const command=(await response.json()).commands.find(command=>command.type===type);if(command&&['completed','failed','expired'].includes(command.status)){location.reload();return}setTimeout(()=>checkCommand(type),2000)}catch{showRequestError(type)}}function controls(type){return type==='collectStorageSummary'?{button:document.getElementById('storage-action'),status:document.getElementById('storage-status'),label:'Update storage'}:{button:document.getElementById('apps-action'),status:document.getElementById('apps-status'),label:'Update apps'}}function showRequestError(type){const {button,status,label}=controls(type);if(status)status.textContent='Could not request the update. Try again.';if(button){button.disabled=false;button.textContent=label}}async function requestCollection(type){const {button,status}=controls(type);button.disabled=true;button.textContent='Update in progress…';status.textContent='Waiting for the device to respond.';try{const response=await fetch('/api/devices/'+encodeURIComponent(deviceId)+'/commands',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type})});if(!response.ok)throw new Error();checkCommand(type)}catch{showRequestError(type)}}document.getElementById('storage-action')?.addEventListener('click',()=>requestCollection('collectStorageSummary'));document.getElementById('apps-action')?.addEventListener('click',()=>requestCollection('collectAppInventory'));${activeStorageCommand ? "checkCommand('collectStorageSummary');" : ""}${activeAppCommand ? "checkCommand('collectAppInventory');" : ""}</script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(device.deviceName)} — Device Health</title><style>${styles()}</style></head><body><main><a href="/">← All devices</a><h1>${escapeHtml(device.deviceName)}</h1><section class="card"><h2>Current state</h2><p><strong>Battery:</strong> ${device.batteryPercentage}% (${device.isCharging ? "charging" : "discharging"})</p><p><strong>Last contact:</strong> ${escapeHtml(device.lastSeenAt)}</p><p><strong>Telemetry captured:</strong> ${escapeHtml(device.capturedAt)}</p><p><strong>Device ID:</strong> ${escapeHtml(device.id)}</p></section><section class="card"><h2>Storage</h2>${storageContent}${storageAction}</section><section class="card"><h2>Installed apps</h2>${appUpdatedAt}<div class="table-scroll"><table><thead><tr><th>App</th><th>Package</th><th>Version</th><th>Updated</th></tr></thead><tbody>${appRows}</tbody></table></div>${appAction}</section><section class="card"><h2>Action history</h2><ul>${history}</ul></section></main><script>const deviceId=${deviceId};async function checkAction(type){try{const response=await fetch('/api/devices/'+encodeURIComponent(deviceId)+'/history');if(!response.ok)throw new Error();const action=(await response.json()).actions.find(action=>action.type===type);if(action&&['completed','failed','expired'].includes(action.status)){location.reload();return}setTimeout(()=>checkAction(type),2000)}catch{showRequestError(type)}}function controls(type){return type==='collectStorageSummary'?{button:document.getElementById('storage-action'),status:document.getElementById('storage-status'),label:'Update storage'}:{button:document.getElementById('apps-action'),status:document.getElementById('apps-status'),label:'Update apps'}}function showRequestError(type){const {button,status,label}=controls(type);if(status)status.textContent='Could not request the update. Try again.';if(button){button.disabled=false;button.textContent=label}}async function requestCollection(type){const {button,status}=controls(type);button.disabled=true;button.textContent='Update in progress…';status.textContent='Waiting for the device to respond.';try{const response=await fetch('/api/devices/'+encodeURIComponent(deviceId)+'/actions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type})});if(!response.ok)throw new Error();checkAction(type)}catch{showRequestError(type)}}document.getElementById('storage-action')?.addEventListener('click',()=>requestCollection('collectStorageSummary'));document.getElementById('apps-action')?.addEventListener('click',()=>requestCollection('collectAppInventory'));${activeStorageAction ? "checkAction('collectStorageSummary');" : ""}${activeAppAction ? "checkAction('collectAppInventory');" : ""}</script></body></html>`;
 }
 
-function isStorageSummary(result: CommandResult | undefined): result is StorageSummary {
+function isStorageSummary(result: ActionResult | undefined): result is StorageSummary {
   return Boolean(result && "totalBytes" in result);
 }
 
-function isAppInventory(result: CommandResult | undefined): result is AppInventory {
+function isAppInventory(result: ActionResult | undefined): result is AppInventory {
   return Boolean(result && "apps" in result);
 }
 
