@@ -9,7 +9,7 @@ const telemetry = {
   androidVersion: "14",
   apiLevel: 34,
   agentVersion: "0.1.0",
-  capabilities: ["collectTelemetry" as const, "collectStorageSummary" as const],
+  capabilities: ["collectTelemetry" as const, "collectStorageSummary" as const, "collectAppInventory" as const],
   batteryPercentage: 80,
   isCharging: false,
   capturedAt: "2026-09-19T11:59:00.000Z",
@@ -123,6 +123,29 @@ test("stores a structured command result", () => {
     capturedAt: "2026-09-19T12:00:00.000Z",
   });
   assert.deepEqual(store.getCommandHistory("device-1")[0]?.result, command?.result);
+  store.close();
+});
+
+test("stores an app inventory result", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "command-1");
+  store.receiveTelemetry("device-1", telemetry);
+  store.createCommand("device-1", "collectAppInventory");
+  const inventory = {
+    capturedAt: "2026-09-19T12:00:00.000Z",
+    apps: [{
+      packageName: "com.example.notes",
+      name: "Notes",
+      versionName: "2.1",
+      versionCode: 21,
+      installedAt: "2026-09-01T12:00:00.000Z",
+      updatedAt: "2026-09-10T12:00:00.000Z",
+    }],
+  };
+
+  const command = store.completeCommand("command-1", true, "App inventory collected", undefined, inventory);
+
+  assert.deepEqual(command?.result, inventory);
+  assert.deepEqual(store.getCommandHistory("device-1")[0]?.result, inventory);
   store.close();
 });
 

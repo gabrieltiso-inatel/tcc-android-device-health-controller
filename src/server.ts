@@ -1,5 +1,12 @@
 import Fastify, { type FastifyReply } from "fastify";
-import { DeviceStore, type CommandType, type StorageSummary, type Telemetry } from "./device-store.js";
+import {
+  DeviceStore,
+  type AppInventory,
+  type CommandResult,
+  type CommandType,
+  type StorageSummary,
+  type Telemetry,
+} from "./device-store.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -70,7 +77,7 @@ export function createControllerServer(store = new DeviceStore()) {
     },
   );
 
-  app.post<{ Params: { commandId: string }; Body: { succeeded: boolean; message: string; errorCode?: string; result?: StorageSummary } }>(
+  app.post<{ Params: { commandId: string }; Body: { succeeded: boolean; message: string; errorCode?: string; result?: CommandResult } }>(
     "/api/commands/:commandId/result",
     { schema: { body: commandResultSchema } },
     async (request, reply) => {
@@ -123,7 +130,7 @@ const telemetrySchema = {
     capabilities: {
       type: "array",
       uniqueItems: true,
-      items: { type: "string", enum: ["collectTelemetry", "collectStorageSummary"] },
+      items: { type: "string", enum: ["collectTelemetry", "collectStorageSummary", "collectAppInventory"] },
     },
     batteryPercentage: { type: "integer", minimum: 0, maximum: 100 },
     isCharging: { type: "boolean" },
@@ -146,7 +153,45 @@ const commandSchema = {
   type: "object",
   additionalProperties: false,
   required: ["type"],
-  properties: { type: { type: "string", enum: ["collectTelemetry", "collectStorageSummary"] } },
+  properties: { type: { type: "string", enum: ["collectTelemetry", "collectStorageSummary", "collectAppInventory"] } },
+} as const;
+
+const storageSummarySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["totalBytes", "usedBytes", "availableBytes", "capturedAt"],
+  properties: {
+    totalBytes: { type: "integer", minimum: 0 },
+    usedBytes: { type: "integer", minimum: 0 },
+    availableBytes: { type: "integer", minimum: 0 },
+    capturedAt: { type: "string", format: "date-time" },
+  },
+} as const;
+
+const appInventorySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["apps", "capturedAt"],
+  properties: {
+    capturedAt: { type: "string", format: "date-time" },
+    apps: {
+      type: "array",
+      maxItems: 1000,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["packageName", "name", "versionName", "versionCode", "installedAt", "updatedAt"],
+        properties: {
+          packageName: { type: "string", minLength: 1, maxLength: 255 },
+          name: { type: "string", minLength: 1, maxLength: 255 },
+          versionName: { type: "string", maxLength: 120 },
+          versionCode: { type: "integer", minimum: 0 },
+          installedAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+    },
+  },
 } as const;
 
 const commandResultSchema = {
@@ -161,15 +206,7 @@ const commandResultSchema = {
       enum: ["unsupported_command", "execution_failed"],
     },
     result: {
-      type: "object",
-      additionalProperties: false,
-      required: ["totalBytes", "usedBytes", "availableBytes", "capturedAt"],
-      properties: {
-        totalBytes: { type: "integer", minimum: 0 },
-        usedBytes: { type: "integer", minimum: 0 },
-        availableBytes: { type: "integer", minimum: 0 },
-        capturedAt: { type: "string", format: "date-time" },
-      },
+      oneOf: [storageSummarySchema, appInventorySchema],
     },
   },
 } as const;
@@ -205,7 +242,8 @@ function renderDashboard(devices: ReturnType<typeof withConnectionStatus>[]) {
 
 function renderDeviceDetail(device: ReturnType<DeviceStore["listDevices"]>[number], commands: ReturnType<DeviceStore["getCommandHistory"]>) {
   const storageCommands = commands.filter((command) => command.type === "collectStorageSummary");
-  const latestStorage = storageCommands.find((command) => command.status === "completed" && command.result)?.result;
+  const latestStorage = storageCommands
+    .find((command) => command.status === "completed" && isStorageSummary(command.result))?.result as StorageSummary | undefined;
   const activeStorageCommand = storageCommands.find(
     (command) => command.status === "pending" || command.status === "delivered",
   );
@@ -216,15 +254,39 @@ function renderDeviceDetail(device: ReturnType<DeviceStore["listDevices"]>[numbe
   const storageAction = supportsStorageSummary
     ? `<button id="storage-action" type="button"${activeStorageCommand ? " disabled" : ""}>${activeStorageCommand ? "Update in progress…" : "Update storage"}</button><p id="storage-status" class="hint" role="status">${activeStorageCommand ? "Waiting for the device to respond." : ""}</p>`
     : '<p class="hint">This agent does not support storage collection.</p>';
+  const appCommands = commands.filter((command) => command.type === "collectAppInventory");
+  const latestAppInventory = appCommands
+    .find((command) => command.status === "completed" && isAppInventory(command.result))?.result as AppInventory | undefined;
+  const activeAppCommand = appCommands.find(
+    (command) => command.status === "pending" || command.status === "delivered",
+  );
+  const supportsAppInventory = device.capabilities.includes("collectAppInventory");
+  const appRows = latestAppInventory?.apps.length
+    ? latestAppInventory.apps.map((app) => `<tr><td>${escapeHtml(app.name)}</td><td>${escapeHtml(app.packageName)}</td><td>${escapeHtml(app.versionName || String(app.versionCode))}</td><td>${escapeHtml(app.updatedAt)}</td></tr>`).join("")
+    : '<tr><td colspan="4">No app inventory collected yet.</td></tr>';
+  const appAction = supportsAppInventory
+    ? `<button id="apps-action" type="button"${activeAppCommand ? " disabled" : ""}>${activeAppCommand ? "Update in progress…" : "Update apps"}</button><p id="apps-status" class="hint" role="status">${activeAppCommand ? "Waiting for the device to respond." : ""}</p>`
+    : '<p class="hint">This agent does not support app inventory.</p>';
+  const appUpdatedAt = latestAppInventory
+    ? `<p class="hint">${latestAppInventory.apps.length} user-installed apps · Updated ${escapeHtml(latestAppInventory.capturedAt)}</p>`
+    : "";
   const history = commands.length
     ? commands.map((command) => `<li><strong>${escapeHtml(command.type)}</strong> — ${escapeHtml(command.status)}<br><span class="hint">Requested ${escapeHtml(command.requestedAt)} · Attempts ${command.attemptCount}${command.completedAt ? ` · Completed ${escapeHtml(command.completedAt)}` : ""}</span>${command.resultMessage ? `<br>${escapeHtml(command.resultMessage)}` : ""}</li>`).join("")
     : "<li>No actions recorded yet.</li>";
   const deviceId = JSON.stringify(device.id).replaceAll("<", "\\u003c");
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(device.deviceName)} — Device Health</title><style>${styles()}</style></head><body><main><a href="/">← All devices</a><h1>${escapeHtml(device.deviceName)}</h1><section class="card"><h2>Current state</h2><p><strong>Battery:</strong> ${device.batteryPercentage}% (${device.isCharging ? "charging" : "discharging"})</p><p><strong>Last contact:</strong> ${escapeHtml(device.lastSeenAt)}</p><p><strong>Telemetry captured:</strong> ${escapeHtml(device.capturedAt)}</p><p><strong>Device ID:</strong> ${escapeHtml(device.id)}</p></section><section class="card"><h2>Storage</h2>${storageContent}${storageAction}</section><section class="card"><h2>Action history</h2><ul>${history}</ul></section></main><script>const deviceId=${deviceId};const button=document.getElementById('storage-action');const status=document.getElementById('storage-status');let polling=${Boolean(activeStorageCommand)};async function checkStorageCommand(){try{const response=await fetch('/api/devices/'+encodeURIComponent(deviceId)+'/history');if(!response.ok)throw new Error();const commands=(await response.json()).commands;const command=commands.find(command=>command.type==='collectStorageSummary');if(command&&['completed','failed','expired'].includes(command.status)){location.reload();return}setTimeout(checkStorageCommand,2000)}catch{status.textContent='Could not check the update. Try again.';button.disabled=false;button.textContent='Update storage';polling=false}}async function updateStorage(){button.disabled=true;button.textContent='Update in progress…';status.textContent='Waiting for the device to respond.';try{const response=await fetch('/api/devices/'+encodeURIComponent(deviceId)+'/commands',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'collectStorageSummary'})});if(!response.ok)throw new Error();if(!polling){polling=true;checkStorageCommand()}}catch{status.textContent='Could not request the update. Try again.';button.disabled=false;button.textContent='Update storage'}}button?.addEventListener('click',updateStorage);if(polling)checkStorageCommand();</script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(device.deviceName)} — Device Health</title><style>${styles()}</style></head><body><main><a href="/">← All devices</a><h1>${escapeHtml(device.deviceName)}</h1><section class="card"><h2>Current state</h2><p><strong>Battery:</strong> ${device.batteryPercentage}% (${device.isCharging ? "charging" : "discharging"})</p><p><strong>Last contact:</strong> ${escapeHtml(device.lastSeenAt)}</p><p><strong>Telemetry captured:</strong> ${escapeHtml(device.capturedAt)}</p><p><strong>Device ID:</strong> ${escapeHtml(device.id)}</p></section><section class="card"><h2>Storage</h2>${storageContent}${storageAction}</section><section class="card"><h2>Installed apps</h2>${appUpdatedAt}<div class="table-scroll"><table><thead><tr><th>App</th><th>Package</th><th>Version</th><th>Updated</th></tr></thead><tbody>${appRows}</tbody></table></div>${appAction}</section><section class="card"><h2>Action history</h2><ul>${history}</ul></section></main><script>const deviceId=${deviceId};async function checkCommand(type){try{const response=await fetch('/api/devices/'+encodeURIComponent(deviceId)+'/history');if(!response.ok)throw new Error();const command=(await response.json()).commands.find(command=>command.type===type);if(command&&['completed','failed','expired'].includes(command.status)){location.reload();return}setTimeout(()=>checkCommand(type),2000)}catch{showRequestError(type)}}function controls(type){return type==='collectStorageSummary'?{button:document.getElementById('storage-action'),status:document.getElementById('storage-status'),label:'Update storage'}:{button:document.getElementById('apps-action'),status:document.getElementById('apps-status'),label:'Update apps'}}function showRequestError(type){const {button,status,label}=controls(type);if(status)status.textContent='Could not request the update. Try again.';if(button){button.disabled=false;button.textContent=label}}async function requestCollection(type){const {button,status}=controls(type);button.disabled=true;button.textContent='Update in progress…';status.textContent='Waiting for the device to respond.';try{const response=await fetch('/api/devices/'+encodeURIComponent(deviceId)+'/commands',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type})});if(!response.ok)throw new Error();checkCommand(type)}catch{showRequestError(type)}}document.getElementById('storage-action')?.addEventListener('click',()=>requestCollection('collectStorageSummary'));document.getElementById('apps-action')?.addEventListener('click',()=>requestCollection('collectAppInventory'));${activeStorageCommand ? "checkCommand('collectStorageSummary');" : ""}${activeAppCommand ? "checkCommand('collectAppInventory');" : ""}</script></body></html>`;
+}
+
+function isStorageSummary(result: CommandResult | undefined): result is StorageSummary {
+  return Boolean(result && "totalBytes" in result);
+}
+
+function isAppInventory(result: CommandResult | undefined): result is AppInventory {
+  return Boolean(result && "apps" in result);
 }
 
 function styles() {
-  return "body{font-family:system-ui,sans-serif;max-width:960px;margin:48px auto;padding:0 20px;color:#172033}main{display:grid;gap:20px}table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid #d7ddea;padding:14px 8px}a{color:#255fdb;text-decoration:none}a:hover{text-decoration:underline}.card{border:1px solid #d7ddea;border-radius:8px;padding:20px}button{background:#255fdb;color:white;border:0;border-radius:6px;padding:10px 14px;font-weight:600;cursor:pointer}button:disabled{cursor:wait;opacity:.65}.hint{color:#5b6575}dl{display:flex;gap:32px}dt{color:#5b6575}dd{font-size:1.25rem;font-weight:600;margin:4px 0}ul{padding-left:20px}li{margin:12px 0}";
+  return "body{font-family:system-ui,sans-serif;max-width:960px;margin:48px auto;padding:0 20px;color:#172033}main{display:grid;gap:20px}table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid #d7ddea;padding:14px 8px}a{color:#255fdb;text-decoration:none}a:hover{text-decoration:underline}.card{border:1px solid #d7ddea;border-radius:8px;padding:20px}button{background:#255fdb;color:white;border:0;border-radius:6px;padding:10px 14px;font-weight:600;cursor:pointer;margin-top:16px}button:disabled{cursor:wait;opacity:.65}.hint{color:#5b6575}.table-scroll{overflow-x:auto}dl{display:flex;gap:32px}dt{color:#5b6575}dd{font-size:1.25rem;font-weight:600;margin:4px 0}ul{padding-left:20px}li{margin:12px 0}";
 }
 
 function formatBytes(bytes: number): string {

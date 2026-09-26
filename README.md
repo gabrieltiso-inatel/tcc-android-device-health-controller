@@ -31,7 +31,7 @@ npm run check
 | `POST` | `/api/devices/pair` | Pareia um agente e entrega seu token. |
 | `POST` | `/api/devices/{deviceId}/telemetry` | Recebe estado, versão e capacidades do agente. |
 | `GET` | `/api/devices/{deviceId}/commands` | Entrega comandos pendentes ao agente. |
-| `POST` | `/api/devices/{deviceId}/commands` | Cria `collectTelemetry` ou `collectStorageSummary`. |
+| `POST` | `/api/devices/{deviceId}/commands` | Cria uma ação informada nas capabilities do agente. |
 | `POST` | `/api/commands/{commandId}/result` | Registra o resultado de um comando. |
 | `GET` | `/api/devices/{deviceId}/history` | Lista o histórico de comandos do dispositivo. |
 
@@ -46,5 +46,7 @@ Falhas definitivas usam códigos internos seguros, como `unsupported_command` e 
 O controlador cria comandos somente quando a capacidade correspondente foi informada pelo agente.
 
 O resultado de `collectStorageSummary` contém apenas totais agregados de espaço total, usado e disponível. Nenhum arquivo é listado ou acessado.
+
+O resultado de `collectAppInventory` contém nome, pacote, versão e datas de instalação e atualização dos aplicativos instalados pelo usuário. Aplicativos do sistema não são incluídos.
 
 Os dispositivos e comandos são persistidos em `data/controller.db` usando SQLite local.

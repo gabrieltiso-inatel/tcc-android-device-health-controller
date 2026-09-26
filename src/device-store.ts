@@ -17,7 +17,7 @@ export type Telemetry = {
 };
 
 export type Device = Telemetry & { id: string; lastSeenAt: string };
-export type CommandType = "collectTelemetry" | "collectStorageSummary";
+export type CommandType = "collectTelemetry" | "collectStorageSummary" | "collectAppInventory";
 export type CommandStatus = "pending" | "delivered" | "completed" | "failed" | "expired";
 export type StorageSummary = {
   totalBytes: number;
@@ -25,6 +25,19 @@ export type StorageSummary = {
   availableBytes: number;
   capturedAt: string;
 };
+export type InstalledApp = {
+  packageName: string;
+  name: string;
+  versionName: string;
+  versionCode: number;
+  installedAt: string;
+  updatedAt: string;
+};
+export type AppInventory = {
+  apps: InstalledApp[];
+  capturedAt: string;
+};
+export type CommandResult = StorageSummary | AppInventory;
 export type Command = {
   id: string;
   deviceId: string;
@@ -36,7 +49,7 @@ export type Command = {
   completedAt?: string;
   resultCode?: string;
   resultMessage?: string;
-  result?: StorageSummary;
+  result?: CommandResult;
 };
 
 export type PairingCode = {
@@ -305,7 +318,7 @@ export class DeviceStore {
     succeeded: boolean,
     message: string,
     resultCode?: string,
-    result?: StorageSummary,
+    result?: CommandResult,
   ): Command | undefined {
     const row = this.database.prepare("SELECT * FROM commands WHERE id = ? AND status IN ('pending', 'delivered')")
       .get(commandId) as CommandRow | undefined;
@@ -367,6 +380,6 @@ function toCommand(row: CommandRow): Command {
     ...(row.completed_at ? { completedAt: row.completed_at } : {}),
     ...(row.result_code ? { resultCode: row.result_code } : {}),
     ...(row.result_message ? { resultMessage: row.result_message } : {}),
-    ...(row.result_json ? { result: JSON.parse(row.result_json) as StorageSummary } : {}),
+    ...(row.result_json ? { result: JSON.parse(row.result_json) as CommandResult } : {}),
   };
 }

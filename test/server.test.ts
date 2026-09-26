@@ -10,7 +10,7 @@ const telemetry = {
   androidVersion: "14",
   apiLevel: 34,
   agentVersion: "0.1.0",
-  capabilities: ["collectTelemetry", "collectStorageSummary"],
+  capabilities: ["collectTelemetry", "collectStorageSummary", "collectAppInventory"],
   batteryPercentage: 50,
   isCharging: false,
   capturedAt: "2026-09-19T12:00:00.000Z",
@@ -83,11 +83,48 @@ test("accepts telemetry and creates a collection command", async () => {
     assert.equal(resultResponse.statusCode, 200);
     assert.equal(resultResponse.json().command.result.availableBytes, 40);
 
+    const appCommandResponse = await server.inject({
+      method: "POST",
+      url: "/api/devices/device-1/commands",
+      payload: { type: "collectAppInventory" },
+    });
+    assert.equal(appCommandResponse.statusCode, 201);
+    const appCommandId = appCommandResponse.json().command.id as string;
+    await server.inject({
+      method: "GET",
+      url: "/api/devices/device-1/commands",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const appResultResponse = await server.inject({
+      method: "POST",
+      url: `/api/commands/${appCommandId}/result`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        succeeded: true,
+        message: "App inventory collected",
+        result: {
+          capturedAt: "2026-09-19T12:00:00.000Z",
+          apps: [{
+            packageName: "com.example.notes",
+            name: "Notes",
+            versionName: "2.1",
+            versionCode: 21,
+            installedAt: "2026-09-01T12:00:00.000Z",
+            updatedAt: "2026-09-10T12:00:00.000Z",
+          }],
+        },
+      },
+    });
+    assert.equal(appResultResponse.statusCode, 200);
+
     const detailResponse = await server.inject({ method: "GET", url: "/devices/device-1" });
     assert.equal(detailResponse.statusCode, 200);
     assert.match(detailResponse.body, /Storage summary collected/);
     assert.match(detailResponse.body, /60 B of 100 B/);
     assert.match(detailResponse.body, /Update storage/);
+    assert.match(detailResponse.body, /Notes/);
+    assert.match(detailResponse.body, /com\.example\.notes/);
+    assert.match(detailResponse.body, /Update apps/);
 
     const unauthorizedResponse = await server.inject({
       method: "POST",
