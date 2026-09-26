@@ -6,7 +6,11 @@ O controlador mantém o estado conhecido dos dispositivos, recebe observações,
 
 ## Componentes atuais
 
-- `server.ts`: rotas Fastify, validação dos contratos e interface web;
+- `server.ts`: composição da aplicação e rotas HTML;
+- `api-routes.ts`: rotas HTTP do contrato com os agents;
+- `api-schemas.ts`: validação dos payloads HTTP;
+- `auth.ts`: autenticação dos devices;
+- `web-renderer.ts`: renderização da interface web;
 - `device-store.ts`: persistência SQLite, autenticação e ciclo de vida das ações;
 - `data/controller.db`: banco local padrão.
 

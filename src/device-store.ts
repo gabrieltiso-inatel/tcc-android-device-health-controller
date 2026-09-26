@@ -2,97 +2,33 @@ import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-
-export type Telemetry = {
-  deviceName: string;
-  manufacturer: string;
-  model: string;
-  androidVersion: string;
-  apiLevel: number;
-  agentVersion: string;
-  capabilities: ActionType[];
-  batteryPercentage: number;
-  isCharging: boolean;
-  capturedAt: string;
-};
-
-export type Device = Telemetry & { id: string; lastSeenAt: string };
-export type ActionType = "collectTelemetry" | "collectStorageSummary" | "collectAppInventory";
-export type ActionOrigin = "controller" | "device";
-export type ActionStatus = "pending" | "delivered" | "completed" | "failed" | "expired";
-export type StorageSummary = {
-  totalBytes: number;
-  usedBytes: number;
-  availableBytes: number;
-  capturedAt: string;
-};
-export type InstalledApp = {
-  packageName: string;
-  name: string;
-  versionName: string;
-  versionCode: number;
-  installedAt: string;
-  updatedAt: string;
-};
-export type AppInventory = {
-  apps: InstalledApp[];
-  capturedAt: string;
-};
-export type ActionResult = StorageSummary | AppInventory;
-export type Action = {
-  id: string;
-  deviceId: string;
-  type: ActionType;
-  origin: ActionOrigin;
-  status: ActionStatus;
-  requestedAt: string;
-  attemptCount: number;
-  deliveredAt?: string;
-  completedAt?: string;
-  resultCode?: string;
-  resultMessage?: string;
-  result?: ActionResult;
-};
-
-export type PairingCode = {
-  code: string;
-  expiresAt: string;
-};
-
-export type DeviceCredential = {
-  deviceId: string;
-  token: string;
-};
-
-type DeviceRow = {
-  id: string;
-  device_name: string;
-  battery_percentage: number;
-  is_charging: number;
-  captured_at: string;
-  last_seen_at: string;
-  manufacturer: string;
-  model: string;
-  android_version: string;
-  api_level: number;
-  agent_version: string;
-  capabilities_json: string;
-};
-
-type ActionRow = {
-  id: string;
-  device_id: string;
-  type: ActionType;
-  origin: ActionOrigin;
-  status: ActionStatus;
-  requested_at: string;
-  delivered_at: string | null;
-  completed_at: string | null;
-  result_message: string | null;
-  result_code: string | null;
-  result_json: string | null;
-  attempt_count: number;
-};
+import { toAction, toDevice, type ActionRow, type DeviceRow } from "./store-mappers.js";
+export type {
+  Action,
+  ActionOrigin,
+  ActionResult,
+  ActionStatus,
+  ActionType,
+  AppInventory,
+  Device,
+  DeviceCredential,
+  InstalledApp,
+  PairingCode,
+  StorageSummary,
+  Telemetry,
+} from "./domain.js";
+import type {
+  Action,
+  ActionOrigin,
+  ActionResult,
+  ActionStatus,
+  ActionType,
+  AppInventory,
+  Device,
+  DeviceCredential,
+  PairingCode,
+  Telemetry,
+} from "./domain.js";
 
 type PairingCodeRow = {
   code: string;
@@ -116,7 +52,6 @@ export class DeviceStore {
       mkdirSync(dirname(databasePath), { recursive: true });
     }
     this.database = new DatabaseSync(databasePath);
-    this.renameCommandsTable();
     this.database.exec(`
       CREATE TABLE IF NOT EXISTS devices (
         id TEXT PRIMARY KEY, device_name TEXT NOT NULL, battery_percentage INTEGER NOT NULL,
@@ -141,39 +76,10 @@ export class DeviceStore {
         paired_at TEXT NOT NULL
       );
     `);
-    this.addColumnIfMissing("actions", "origin", "TEXT NOT NULL DEFAULT 'controller'");
-    this.addColumnIfMissing("actions", "attempt_count", "INTEGER NOT NULL DEFAULT 0");
-    this.addColumnIfMissing("actions", "result_code", "TEXT");
-    this.addColumnIfMissing("actions", "result_json", "TEXT");
-    this.addColumnIfMissing("devices", "manufacturer", "TEXT NOT NULL DEFAULT ''");
-    this.addColumnIfMissing("devices", "model", "TEXT NOT NULL DEFAULT ''");
-    this.addColumnIfMissing("devices", "android_version", "TEXT NOT NULL DEFAULT ''");
-    this.addColumnIfMissing("devices", "api_level", "INTEGER NOT NULL DEFAULT 0");
-    this.addColumnIfMissing("devices", "agent_version", "TEXT NOT NULL DEFAULT ''");
-    this.addColumnIfMissing("devices", "capabilities_json", "TEXT NOT NULL DEFAULT '[]'");
   }
 
   close() {
     this.database.close();
-  }
-
-  private renameCommandsTable(): void {
-    const commandsTable = this.database.prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'commands'",
-    ).get();
-    const actionsTable = this.database.prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'actions'",
-    ).get();
-    if (commandsTable && !actionsTable) {
-      this.database.exec("ALTER TABLE commands RENAME TO actions");
-    }
-  }
-
-  private addColumnIfMissing(table: string, column: string, definition: string): void {
-    const columns = this.database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-    if (!columns.some((candidate) => candidate.name === column)) {
-      this.database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-    }
   }
 
   createPairingCode(validForMinutes = 5): PairingCode {
@@ -184,17 +90,18 @@ export class DeviceStore {
   }
 
   pairDevice(code: string, deviceId: string, deviceName: string): DeviceCredential | undefined {
-    const pairingCode = this.database.prepare("SELECT * FROM pairing_codes WHERE code = ?")
-      .get(code) as PairingCodeRow | undefined;
     const pairedAt = this.now();
-    if (!pairingCode || pairingCode.used_at || pairingCode.expires_at < pairedAt) {
-      return undefined;
-    }
-
     const token = this.createToken();
     this.database.exec("BEGIN IMMEDIATE");
     try {
-      this.database.prepare("UPDATE pairing_codes SET used_at = ? WHERE code = ?").run(pairedAt, code);
+      const pairingCode = this.database.prepare("SELECT * FROM pairing_codes WHERE code = ?")
+        .get(code) as PairingCodeRow | undefined;
+      if (!pairingCode || pairingCode.used_at || pairingCode.expires_at < pairedAt) {
+        this.database.exec("ROLLBACK");
+        return undefined;
+      }
+      this.database.prepare("UPDATE pairing_codes SET used_at = ? WHERE code = ? AND used_at IS NULL")
+        .run(pairedAt, code);
       this.database.prepare(`
         INSERT INTO device_credentials (device_id, device_name, token_hash, paired_at)
         VALUES (?, ?, ?, ?)
@@ -387,38 +294,4 @@ function matchesToken(token: string, expectedHash: string): boolean {
   const receivedHash = Buffer.from(hashToken(token), "hex");
   const storedHash = Buffer.from(expectedHash, "hex");
   return receivedHash.length === storedHash.length && timingSafeEqual(receivedHash, storedHash);
-}
-
-function toDevice(row: DeviceRow): Device {
-  return {
-    id: row.id,
-    deviceName: row.device_name,
-    manufacturer: row.manufacturer,
-    model: row.model,
-    androidVersion: row.android_version,
-    apiLevel: row.api_level,
-    agentVersion: row.agent_version,
-    capabilities: JSON.parse(row.capabilities_json) as ActionType[],
-    batteryPercentage: row.battery_percentage,
-    isCharging: Boolean(row.is_charging),
-    capturedAt: row.captured_at,
-    lastSeenAt: row.last_seen_at,
-  };
-}
-
-function toAction(row: ActionRow): Action {
-  return {
-    id: row.id,
-    deviceId: row.device_id,
-    type: row.type,
-    origin: row.origin,
-    status: row.status,
-    requestedAt: row.requested_at,
-    attemptCount: row.attempt_count,
-    ...(row.delivered_at ? { deliveredAt: row.delivered_at } : {}),
-    ...(row.completed_at ? { completedAt: row.completed_at } : {}),
-    ...(row.result_code ? { resultCode: row.result_code } : {}),
-    ...(row.result_message ? { resultMessage: row.result_message } : {}),
-    ...(row.result_json ? { result: JSON.parse(row.result_json) as ActionResult } : {}),
-  };
 }
