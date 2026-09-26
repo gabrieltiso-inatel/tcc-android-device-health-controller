@@ -40,6 +40,12 @@ Depois:
 - acessar arquivos somente com consentimento do usuário;
 - avaliar capacidades privilegiadas com Device Owner/Profile Owner.
 
+## Context Routing
+
+- Leia `docs/use-cases.md` ao planejar funcionalidades, revisar escopo ou definir o próximo passo.
+- Leia `docs/architecture.md` antes de alterar contratos, persistência, autenticação, comunicação ou limites entre camadas.
+- Não carregue toda a documentação para correções locais que não dependam desse contexto.
+
 ## Communication
 
 - Write explanations and responses in concise Brazilian Portuguese.
