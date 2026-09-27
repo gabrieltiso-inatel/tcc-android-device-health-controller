@@ -41,6 +41,13 @@ O controlador deve centralizar leituras e intenções de gerenciamento. O fato d
 - mostrar estado, origem, horários, tentativas e resultado;
 - aplicar retry, expiração e prevenção de execução duplicada.
 
+### Consultar arquivos autorizados
+
+- solicitar um inventário explícito de arquivos disponíveis;
+- mostrar fontes, nome, tipo, tamanho, data de alteração e referência de revisão;
+- preservar o snapshot atual separado do histórico de ações;
+- tratar `fileId`, `sourceId` e `revision` como referências opacas.
+
 ## Parcial
 
 ### Sincronizar estado automaticamente
@@ -53,6 +60,13 @@ O controlador deve centralizar leituras e intenções de gerenciamento. O fato d
 - solicitar `removeApplication` com identificador e versão observada;
 - acompanhar entrega, aprovação, conclusão, cancelamento e falha;
 - manter o histórico e o inventário coerentes após o resultado.
+
+### Remover arquivo
+
+- solicitar a remoção usando uma referência opaca e a revisão observada;
+- deixar o agent revalidar o arquivo e aplicar o consentimento oficial necessário;
+- atualizar o inventário após o resultado;
+- atualmente permitir a ação apenas para arquivos em pastas autorizadas pelo usuário.
 
 ## Planejado
 

@@ -20,6 +20,7 @@ export function createControllerServer(store = new DeviceStore()) {
         store.getActionHistory(device.id),
         store.getStorageSnapshot(device.id),
         store.getAppInventorySnapshot(device.id),
+        store.getFileInventorySnapshot(device.id),
       ),
     );
   });

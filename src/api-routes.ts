@@ -5,6 +5,7 @@ import {
   type ActionResult,
   type ActionType,
   type AppInventory,
+  type FileInventory,
   type StorageSummary,
   type Telemetry,
 } from "./device-store.js";
@@ -12,13 +13,14 @@ import {
   actionResultSchema,
   actionSchema,
   appInventorySchema,
+  fileInventorySchema,
   pairingSchema,
   storageSummarySchema,
   telemetrySchema,
 } from "./api-schemas.js";
 import { authenticateDeviceRequest, readBearerToken, unauthorized } from "./auth.js";
 import { withConnectionStatus } from "./web-renderer.js";
-import { isValidAppInventory, isValidStorageSummary } from "./domain.js";
+import { isValidAppInventory, isValidFileInventory, isValidStorageSummary } from "./domain.js";
 
 type PairingRequest = {
   code: string;
@@ -97,6 +99,20 @@ export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): voi
     },
   );
 
+  app.post<{ Params: { deviceId: string }; Body: FileInventory }>(
+    "/api/devices/:deviceId/files",
+    { schema: { body: fileInventorySchema } },
+    async (request, reply) => {
+      if (!authenticateDeviceRequest(request.headers.authorization, request.params.deviceId, store)) {
+        return unauthorized(reply);
+      }
+      if (!isValidFileInventory(request.body)) {
+        return reply.code(400).send({ message: "File inventory is inconsistent" });
+      }
+      return { files: store.receiveFileInventory(request.params.deviceId, request.body) };
+    },
+  );
+
   app.get<{ Params: { deviceId: string } }>("/api/devices/:deviceId/actions", async (request, reply) => {
     if (!authenticateDeviceRequest(request.headers.authorization, request.params.deviceId, store)) {
       return unauthorized(reply);
@@ -128,9 +144,15 @@ export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): voi
         return unauthorized(reply);
       }
       const hasPayload = request.body.payload !== undefined;
-      const requiresPayload = request.body.type === "removeApplication";
+      const requiresPayload = request.body.type === "removeApplication" || request.body.type === "removeFile";
       if (hasPayload !== requiresPayload) {
         return reply.code(400).send({ message: "Action payload is invalid" });
+      }
+      if (request.body.type === "removeApplication" && (!request.body.payload || !('applicationId' in request.body.payload))) {
+        return reply.code(400).send({ message: "Application target is invalid" });
+      }
+      if (request.body.type === "removeFile" && (!request.body.payload || !('fileId' in request.body.payload))) {
+        return reply.code(400).send({ message: "File target is invalid" });
       }
       if (!store.supportsAction(request.params.deviceId, request.body.type)) {
         return reply.code(409).send({ message: "Action is not supported by this device" });
@@ -153,6 +175,9 @@ export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): voi
       }
       if (request.body.succeeded && request.body.result && "apps" in request.body.result && !isValidAppInventory(request.body.result)) {
         return reply.code(400).send({ message: "App inventory is inconsistent" });
+      }
+      if (request.body.succeeded && request.body.result && "files" in request.body.result && !isValidFileInventory(request.body.result)) {
+        return reply.code(400).send({ message: "File inventory is inconsistent" });
       }
       const status = request.body.status ?? (request.body.succeeded ? "completed" : "failed");
       if (status === "completed" && !request.body.succeeded) {

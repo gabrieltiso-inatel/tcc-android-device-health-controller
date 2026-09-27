@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { toAction, toDevice, type ActionRow, type DeviceRow } from "./store-mappers.js";
-import { isValidAppInventory, isValidStorageSummary } from "./domain.js";
+import { isValidAppInventory, isValidFileInventory, isValidStorageSummary } from "./domain.js";
 export type {
   Action,
   ActionPayload,
@@ -14,6 +14,9 @@ export type {
   ActionType,
   AppInventory,
   AppInventorySnapshot,
+  FileInventory,
+  FileInventorySnapshot,
+  FileTarget,
   Device,
   DeviceCredential,
   InstalledApp,
@@ -32,6 +35,9 @@ import type {
   ActionType,
   AppInventory,
   AppInventorySnapshot,
+  FileInventory,
+  FileInventorySnapshot,
+  FileTarget,
   Device,
   DeviceCredential,
   PairingCode,
@@ -69,6 +75,26 @@ type InstalledAppRow = {
   version_code: number;
   installed_at: string;
   updated_at: string;
+};
+
+type FileInventoryRow = {
+  device_id: string;
+  captured_at: string;
+  received_at: string;
+  sources_json: string;
+};
+
+type FileRow = {
+  file_id: string;
+  source_id: string;
+  name: string;
+  kind: "image" | "video" | "audio" | "document" | "other";
+  mime_type: string | null;
+  size_bytes: number;
+  modified_at: string | null;
+  display_path: string | null;
+  can_remove: number;
+  revision: string;
 };
 
 export class DeviceStore {
@@ -126,7 +152,21 @@ export class DeviceStore {
         PRIMARY KEY (device_id, application_id),
         FOREIGN KEY(device_id) REFERENCES devices(id)
       );
+      CREATE TABLE IF NOT EXISTS device_file_inventories (
+        device_id TEXT PRIMARY KEY, captured_at TEXT NOT NULL, received_at TEXT NOT NULL, sources_json TEXT NOT NULL DEFAULT '[]',
+        FOREIGN KEY(device_id) REFERENCES devices(id)
+      );
+      CREATE TABLE IF NOT EXISTS device_files (
+        device_id TEXT NOT NULL, file_id TEXT NOT NULL, source_id TEXT NOT NULL, name TEXT NOT NULL,
+        kind TEXT NOT NULL, mime_type TEXT, size_bytes INTEGER NOT NULL, modified_at TEXT,
+        display_path TEXT, can_remove INTEGER NOT NULL, revision TEXT NOT NULL,
+        PRIMARY KEY (device_id, file_id), FOREIGN KEY(device_id) REFERENCES devices(id)
+      );
     `);
+    const fileInventoryColumns = this.database.prepare("PRAGMA table_info(device_file_inventories)").all() as Array<{ name: string }>;
+    if (!fileInventoryColumns.some((column) => column.name === "sources_json")) {
+      this.database.exec("ALTER TABLE device_file_inventories ADD COLUMN sources_json TEXT NOT NULL DEFAULT '[]'");
+    }
     const actionColumns = this.database.prepare("PRAGMA table_info(actions)").all() as Array<{ name: string }>;
     if (!actionColumns.some((column) => column.name === "payload_json")) {
       this.database.exec("ALTER TABLE actions ADD COLUMN payload_json TEXT");
@@ -301,6 +341,34 @@ export class DeviceStore {
     };
   }
 
+  receiveFileInventory(deviceId: string, inventory: FileInventory): FileInventorySnapshot {
+    if (!isValidFileInventory(inventory)) {
+      throw new RangeError("File inventory is inconsistent");
+    }
+    const receivedAt = this.now();
+    this.upsertFileInventory(deviceId, inventory, receivedAt);
+    this.database.prepare("UPDATE devices SET last_seen_at = ? WHERE id = ?").run(receivedAt, deviceId);
+    return this.getFileInventorySnapshot(deviceId) ?? { ...inventory, receivedAt };
+  }
+
+  getFileInventorySnapshot(deviceId: string): FileInventorySnapshot | undefined {
+    const inventoryRow = this.database.prepare("SELECT * FROM device_file_inventories WHERE device_id = ?")
+      .get(deviceId) as FileInventoryRow | undefined;
+    if (!inventoryRow) {
+      return undefined;
+    }
+    const files = this.database.prepare(`
+      SELECT file_id, source_id, name, kind, mime_type, size_bytes, modified_at, display_path, can_remove, revision
+      FROM device_files WHERE device_id = ? ORDER BY size_bytes DESC, name COLLATE NOCASE ASC
+    `).all(deviceId) as FileRow[];
+    return {
+      capturedAt: inventoryRow.captured_at,
+      receivedAt: inventoryRow.received_at,
+      sources: JSON.parse(inventoryRow.sources_json) as FileInventory["sources"],
+      files: files.map(toFileItem),
+    };
+  }
+
   createAction(deviceId: string, type: ActionType, origin: ActionOrigin, payload?: ActionPayload): Action | undefined {
     if (!this.supportsAction(deviceId, type)) {
       return undefined;
@@ -409,6 +477,9 @@ export class DeviceStore {
     if (status === "completed" && result && isAppInventory(result) && isValidAppInventory(result)) {
       this.upsertAppInventory(row.device_id, result, completedAt);
     }
+    if (status === "completed" && result && isFileInventory(result) && isValidFileInventory(result)) {
+      this.upsertFileInventory(row.device_id, result, completedAt);
+    }
     return toAction({
       ...row,
       status,
@@ -474,6 +545,35 @@ export class DeviceStore {
       throw error;
     }
   }
+
+  private upsertFileInventory(deviceId: string, inventory: FileInventory, receivedAt: string): void {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.database.prepare("SELECT captured_at FROM device_file_inventories WHERE device_id = ?")
+        .get(deviceId) as { captured_at: string } | undefined;
+      if (current && current.captured_at > inventory.capturedAt) {
+        this.database.exec("ROLLBACK");
+        return;
+      }
+      this.database.prepare("DELETE FROM device_files WHERE device_id = ?").run(deviceId);
+      const insertFile = this.database.prepare(`
+        INSERT INTO device_files (device_id, file_id, source_id, name, kind, mime_type, size_bytes, modified_at, display_path, can_remove, revision)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const file of inventory.files) {
+        insertFile.run(deviceId, file.fileId, file.sourceId, file.name, file.kind, file.mimeType ?? null, file.sizeBytes, file.modifiedAt ?? null, file.displayPath ?? null, Number(file.canRemove), file.revision);
+      }
+      this.database.prepare(`
+        INSERT INTO device_file_inventories (device_id, captured_at, received_at, sources_json)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(device_id) DO UPDATE SET captured_at = excluded.captured_at, received_at = excluded.received_at, sources_json = excluded.sources_json
+      `).run(deviceId, inventory.capturedAt, receivedAt, JSON.stringify(inventory.sources));
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
 }
 
 function hashToken(token: string): string {
@@ -492,6 +592,10 @@ function isStorageSummary(result: ActionResult): result is StorageSummary {
 
 function isAppInventory(result: ActionResult): result is AppInventory {
   return "apps" in result;
+}
+
+function isFileInventory(result: ActionResult): result is FileInventory {
+  return "files" in result;
 }
 
 function toStorageSnapshot(row: StorageSnapshotRow): StorageSnapshot {
@@ -513,5 +617,20 @@ function toInstalledApp(row: InstalledAppRow): AppInventory["apps"][number] {
     versionCode: row.version_code,
     installedAt: row.installed_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function toFileItem(row: FileRow): FileInventory["files"][number] {
+  return {
+    fileId: row.file_id,
+    sourceId: row.source_id,
+    name: row.name,
+    kind: row.kind,
+    ...(row.mime_type ? { mimeType: row.mime_type } : {}),
+    sizeBytes: row.size_bytes,
+    ...(row.modified_at ? { modifiedAt: row.modified_at } : {}),
+    ...(row.display_path ? { displayPath: row.display_path } : {}),
+    canRemove: Boolean(row.can_remove),
+    revision: row.revision,
   };
 }

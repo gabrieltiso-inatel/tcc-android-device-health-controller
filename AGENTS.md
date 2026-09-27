@@ -11,10 +11,10 @@ Este repositório contém o controlador do projeto Android Device Health, uma so
 - O controlador é uma aplicação local em TypeScript, Node.js e Fastify, com persistência SQLite e interface web.
 - O agent Android inicia toda comunicação por HTTP, envia seu estado e consulta ações pendentes por polling.
 - Dispositivos são associados ao controlador por código temporário de pareamento e token.
-- O estado atual inclui identificação do dispositivo, bateria, versão do Android, capabilities, armazenamento agregado e inventário de aplicativos instalados pelo usuário.
+- O estado atual inclui identificação do dispositivo, bateria, versão do Android, capabilities, armazenamento agregado, inventário de aplicativos instalados pelo usuário e inventário de arquivos autorizados.
 - Ações explícitas podem ter origem `controller` ou `device` e compartilham o mesmo histórico auditável.
 - Ações possuem entrega, retry, expiração, idempotência, resultado estruturado e erros seguros.
-- As ações atuais são `collectTelemetry`, `collectStorageSummary`, `collectAppInventory` e `removeApplication`.
+- As ações atuais são `collectTelemetry`, `collectStorageSummary`, `collectAppInventory`, `collectFileInventory`, `removeApplication` e `removeFile`.
 - Sincronizações automáticas representam estado observado e não devem criar entradas no histórico de ações.
 - O objetivo não é implementar um MDM completo, mas evoluir casos de uso verificáveis respeitando as limitações e a segurança da plataforma Android.
 
@@ -39,6 +39,7 @@ Concluído:
 - framework unificado de ações com origem `controller` ou `device`;
 - histórico compartilhado de ações;
 - telemetria, resumo de armazenamento e inventário de aplicativos;
+- contrato e snapshot inicial de inventário de arquivos;
 - pareamento, autenticação, retry, expiração e idempotência.
 
 Próximo:
@@ -48,11 +49,13 @@ Próximo:
 Depois:
 
 - melhorar a apresentação e filtragem do histórico;
-- implementar operações sobre arquivos somente através das APIs oficiais e consentimento necessário;
+- `removeFile` para arquivos em pastas autorizadas já usa referência opaca, revisão esperada e consentimento explícito; ampliar para mídia compartilhada somente com a API oficial correspondente;
 - ampliar ações de gerenciamento possíveis no agent comum;
 - avaliar capacidades adicionais com Device Owner/Profile Owner.
 
 No inventário, `canRemove` é uma decisão do agent sobre a referência concreta. O controlador usa esse sinal apenas para decidir se apresenta a ação de remoção; não interpreta pacote Android nem reimplementa a validação.
+
+No inventário de arquivos, `fileId`, `sourceId` e `revision` são referências opacas. O controller armazena apenas metadados e não recebe URIs ou caminhos físicos Android.
 
 ## Context Routing
 
