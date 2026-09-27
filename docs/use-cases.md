@@ -2,6 +2,8 @@
 
 Este documento registra o escopo funcional do controlador. Atualize o estado dos casos de uso quando uma entrega for concluída ou repriorizada.
 
+O controlador deve centralizar leituras e intenções de gerenciamento. O fato de uma ação exigir consentimento, notificação ou retomada no agent não a coloca fora do escopo.
+
 ## Concluído
 
 ### Cadastrar dispositivo
@@ -55,14 +57,15 @@ Este documento registra o escopo funcional do controlador. Atualize o estado dos
 
 - melhorar a apresentação e filtragem do histórico;
 - ampliar informações disponíveis sobre aplicativos;
-- solicitar a ação explícita `removeApplication` para remover uma aplicação;
-- trabalhar com arquivos autorizados pelo usuário;
-- avaliar ações privilegiadas em modo Device Owner/Profile Owner.
+- trabalhar com arquivos autorizados pelo usuário através das APIs oficiais;
+- ampliar ações de gerenciamento de aplicações que sejam possíveis com consentimento;
+- avaliar ações adicionais em modo Device Owner/Profile Owner.
 
 As ações do controlador representam intenções de negócio. O controlador não escolhe a API Android nem diferencia consentimento de política administrativa; essas decisões pertencem ao agent.
 
-## Fora do escopo atual
+## Limites atuais
 
 - listar ou excluir arquivos arbitrários sem consentimento;
-- limpar dados ou remover aplicativos silenciosamente em um agent comum;
+- limpar dados ou remover aplicativos sem respeitar as restrições da plataforma;
+- exigir Device Owner/Profile Owner como condição para o fluxo principal;
 - implementar um MDM completo antes de validar os casos de uso principais.

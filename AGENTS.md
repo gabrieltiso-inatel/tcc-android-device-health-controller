@@ -29,6 +29,9 @@ Diretrizes permanentes:
 - Preservar os padrões existentes antes de criar novas abstrações: unions de strings, payload opcional, resultados estruturados, idempotência por `actionId` e snapshots separados do histórico.
 - Tratar identificadores concretos do inventário como referências opacas no controlador; não interpretar detalhes de pacote ou APIs Android em regras de negócio.
 - Consentimento, permissões e Device Owner/Profile Owner pertencem à estratégia do agent. Não criar nomes de ações acoplados a essas estratégias.
+- O objetivo do produto é centralizar leituras e ações reais de gerenciamento; não reduzir o escopo a telemetria por causa das limitações de uma API específica.
+- Ações oficiais que exigem consentimento, notificação ou retomada continuam dentro do escopo e devem ser representadas no histórico.
+- Device Owner/Profile Owner é opcional e experimental; não deve ser tratado como requisito para telefones familiares.
 - Quando uma decisão de contrato mudar, atualizar este arquivo, o `AGENTS.md` do agent, o `HANDOFF.md` e os documentos de contexto correspondentes.
 
 Concluído:
@@ -45,8 +48,9 @@ Próximo:
 Depois:
 
 - melhorar a apresentação e filtragem do histórico;
-- acessar arquivos somente com consentimento do usuário;
-- avaliar capacidades privilegiadas com Device Owner/Profile Owner.
+- implementar operações sobre arquivos somente através das APIs oficiais e consentimento necessário;
+- ampliar ações de gerenciamento possíveis no agent comum;
+- avaliar capacidades adicionais com Device Owner/Profile Owner.
 
 ## Context Routing
 
