@@ -16,7 +16,7 @@ O controlador mantém o estado conhecido dos dispositivos, recebe observações,
 
 O estado atual de armazenamento fica em `device_storage`, separado do histórico de ações. O registro é substituído pelo último resumo recebido, enquanto ações explícitas continuam sendo registradas em `actions`.
 
-O inventário atual fica em `device_app_inventories` e `device_apps`. A lista de pacotes é substituída atomicamente quando uma coleta completa mais nova chega.
+O inventário atual fica em `device_app_inventories` e `device_apps`. A lista de aplicações é substituída atomicamente quando uma coleta completa mais nova chega.
 
 Extraia novos módulos quando uma responsabilidade crescer; não mova lógica de negócio para handlers ou HTML.
 
@@ -58,6 +58,8 @@ agent registra Action(origin=device, status=delivered)
 - apenas ações explícitas entram no histórico;
 - toda ação possui origem `controller` ou `device`;
 - ações só podem ser criadas quando o dispositivo anuncia a capability correspondente;
+- capabilities representam capacidades do agent no contrato da aplicação, não permissões ou APIs Android;
+- ações representam intenções de negócio; estratégias de consentimento e administração ficam fora do controlador;
 - tokens são armazenados como hash e nunca devem aparecer em logs;
 - resultados de erro não expõem detalhes internos;
 - ações do controlador suportam retry e expiração;

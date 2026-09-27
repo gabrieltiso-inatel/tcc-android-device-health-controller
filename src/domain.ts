@@ -1,6 +1,12 @@
-export type ActionType = "collectTelemetry" | "collectStorageSummary" | "collectAppInventory";
+export type ActionType = "collectTelemetry" | "collectStorageSummary" | "collectAppInventory" | "removeApplication";
 export type ActionOrigin = "controller" | "device";
-export type ActionStatus = "pending" | "delivered" | "completed" | "failed" | "expired";
+export type ActionStatus = "pending" | "delivered" | "awaiting_approval" | "completed" | "cancelled" | "failed" | "expired";
+
+export type ApplicationTarget = {
+  applicationId: string;
+};
+
+export type ActionPayload = ApplicationTarget;
 
 export type Telemetry = {
   deviceName: string;
@@ -38,7 +44,7 @@ export function isValidStorageSummary(summary: StorageSummary): boolean {
 }
 
 export type InstalledApp = {
-  packageName: string;
+  applicationId: string;
   name: string;
   versionName: string;
   versionCode: number;
@@ -56,8 +62,8 @@ export type AppInventorySnapshot = AppInventory & {
 };
 
 export function isValidAppInventory(inventory: AppInventory): boolean {
-  const packageNames = inventory.apps.map((app) => app.packageName);
-  return new Set(packageNames).size === packageNames.length &&
+  const applicationIds = inventory.apps.map((app) => app.applicationId);
+  return new Set(applicationIds).size === applicationIds.length &&
     inventory.apps.every((app) => Number.isSafeInteger(app.versionCode) && app.versionCode >= 0);
 }
 
@@ -67,6 +73,7 @@ export type Action = {
   id: string;
   deviceId: string;
   type: ActionType;
+  payload?: ActionPayload;
   origin: ActionOrigin;
   status: ActionStatus;
   requestedAt: string;

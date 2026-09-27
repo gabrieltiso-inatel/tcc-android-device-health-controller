@@ -9,7 +9,7 @@ const telemetry = {
   androidVersion: "14",
   apiLevel: 34,
   agentVersion: "0.1.0",
-  capabilities: ["collectTelemetry" as const, "collectStorageSummary" as const, "collectAppInventory" as const],
+  capabilities: ["collectTelemetry" as const, "collectStorageSummary" as const, "collectAppInventory" as const, "removeApplication" as const],
   batteryPercentage: 80,
   isCharging: false,
   capturedAt: "2026-09-19T11:59:00.000Z",
@@ -29,6 +29,19 @@ test("stores telemetry and completes a controller action", () => {
 
   assert.equal(completedAction?.status, "completed");
   assert.equal(store.getPendingActions("device-1").length, 0);
+  store.close();
+});
+
+test("stores an action target as an opaque application identifier", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "action-1");
+  store.receiveTelemetry("device-1", telemetry);
+
+  const action = store.createAction("device-1", "removeApplication", "controller", {
+    applicationId: "application.notes",
+  });
+
+  assert.deepEqual(action?.payload, { applicationId: "application.notes" });
+  assert.deepEqual(store.getPendingActions("device-1")[0]?.payload, { applicationId: "application.notes" });
   store.close();
 });
 
@@ -200,7 +213,7 @@ test("stores an app inventory result", () => {
   const inventory = {
     capturedAt: "2026-09-19T12:00:00.000Z",
     apps: [{
-      packageName: "com.example.notes",
+      applicationId: "com.example.notes",
       name: "Notes",
       versionName: "2.1",
       versionCode: 21,
@@ -222,7 +235,7 @@ test("stores the current app inventory atomically", () => {
   const inventory = {
     capturedAt: "2026-09-19T12:00:00.000Z",
     apps: [{
-      packageName: "com.example.notes",
+      applicationId: "com.example.notes",
       name: "Notes",
       versionName: "2.1",
       versionCode: 21,

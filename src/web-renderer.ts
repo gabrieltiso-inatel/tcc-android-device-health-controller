@@ -43,7 +43,7 @@ export function renderDeviceDetail(
   );
   const supportsAppInventory = device.capabilities.includes("collectAppInventory");
   const appRows = latestAppInventory?.apps.length
-    ? latestAppInventory.apps.map((app) => `<tr><td>${escapeHtml(app.name)}</td><td>${escapeHtml(app.packageName)}</td><td>${escapeHtml(app.versionName || String(app.versionCode))}</td><td>${escapeHtml(app.updatedAt)}</td></tr>`).join("")
+    ? latestAppInventory.apps.map((app) => `<tr><td>${escapeHtml(app.name)}</td><td>${escapeHtml(app.applicationId)}</td><td>${escapeHtml(app.versionName || String(app.versionCode))}</td><td>${escapeHtml(app.updatedAt)}</td></tr>`).join("")
     : '<tr><td colspan="4">No app inventory collected yet.</td></tr>';
   const appAction = supportsAppInventory
     ? `<button id="apps-action" type="button"${activeAppAction ? " disabled" : ""}>${activeAppAction ? "Update in progress…" : "Update apps"}</button><p id="apps-status" class="hint" role="status">${activeAppAction ? "Waiting for the device to respond." : ""}</p>`

@@ -6,6 +6,7 @@ import { toAction, toDevice, type ActionRow, type DeviceRow } from "./store-mapp
 import { isValidAppInventory, isValidStorageSummary } from "./domain.js";
 export type {
   Action,
+  ActionPayload,
   ActionOrigin,
   ActionResult,
   ActionStatus,
@@ -22,6 +23,7 @@ export type {
 } from "./domain.js";
 import type {
   Action,
+  ActionPayload,
   ActionOrigin,
   ActionResult,
   ActionStatus,
@@ -58,7 +60,7 @@ type AppInventoryRow = {
 };
 
 type InstalledAppRow = {
-  package_name: string;
+  application_id: string;
   name: string;
   version_name: string;
   version_code: number;
@@ -94,7 +96,7 @@ export class DeviceStore {
         id TEXT PRIMARY KEY, device_id TEXT NOT NULL, type TEXT NOT NULL,
         origin TEXT NOT NULL, status TEXT NOT NULL,
         requested_at TEXT NOT NULL, delivered_at TEXT, completed_at TEXT, result_code TEXT, result_message TEXT,
-        result_json TEXT,
+        result_json TEXT, payload_json TEXT,
         attempt_count INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY(device_id) REFERENCES devices(id)
       );
@@ -115,13 +117,43 @@ export class DeviceStore {
         FOREIGN KEY(device_id) REFERENCES devices(id)
       );
       CREATE TABLE IF NOT EXISTS device_apps (
-        device_id TEXT NOT NULL, package_name TEXT NOT NULL, name TEXT NOT NULL,
+        device_id TEXT NOT NULL, application_id TEXT NOT NULL, name TEXT NOT NULL,
         version_name TEXT NOT NULL, version_code INTEGER NOT NULL,
         installed_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-        PRIMARY KEY (device_id, package_name),
+        PRIMARY KEY (device_id, application_id),
         FOREIGN KEY(device_id) REFERENCES devices(id)
       );
     `);
+    const actionColumns = this.database.prepare("PRAGMA table_info(actions)").all() as Array<{ name: string }>;
+    if (!actionColumns.some((column) => column.name === "payload_json")) {
+      this.database.exec("ALTER TABLE actions ADD COLUMN payload_json TEXT");
+    }
+    const appColumns = this.database.prepare("PRAGMA table_info(device_apps)").all() as Array<{ name: string }>;
+    if (appColumns.some((column) => column.name === "package_name")) {
+      this.database.exec("BEGIN IMMEDIATE");
+      try {
+        this.database.exec("ALTER TABLE device_apps RENAME TO device_apps_legacy");
+        this.database.exec(`
+          CREATE TABLE device_apps (
+            device_id TEXT NOT NULL, application_id TEXT NOT NULL, name TEXT NOT NULL,
+            version_name TEXT NOT NULL, version_code INTEGER NOT NULL,
+            installed_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            PRIMARY KEY (device_id, application_id),
+            FOREIGN KEY(device_id) REFERENCES devices(id)
+          )
+        `);
+        this.database.exec(`
+          INSERT INTO device_apps (device_id, application_id, name, version_name, version_code, installed_at, updated_at)
+          SELECT device_id, package_name, name, version_name, version_code, installed_at, updated_at
+          FROM device_apps_legacy
+        `);
+        this.database.exec("DROP TABLE device_apps_legacy");
+        this.database.exec("COMMIT");
+      } catch (error) {
+        this.database.exec("ROLLBACK");
+        throw error;
+      }
+    }
   }
 
   close() {
@@ -254,7 +286,7 @@ export class DeviceStore {
       return undefined;
     }
     const apps = this.database.prepare(`
-      SELECT package_name, name, version_name, version_code, installed_at, updated_at
+      SELECT application_id, name, version_name, version_code, installed_at, updated_at
       FROM device_apps WHERE device_id = ? ORDER BY name COLLATE NOCASE ASC
     `).all(deviceId) as InstalledAppRow[];
     return {
@@ -264,7 +296,7 @@ export class DeviceStore {
     };
   }
 
-  createAction(deviceId: string, type: ActionType, origin: ActionOrigin): Action | undefined {
+  createAction(deviceId: string, type: ActionType, origin: ActionOrigin, payload?: ActionPayload): Action | undefined {
     if (!this.supportsAction(deviceId, type)) {
       return undefined;
     }
@@ -273,6 +305,7 @@ export class DeviceStore {
       id: this.createIdentifier(),
       deviceId,
       type,
+      ...(payload ? { payload } : {}),
       origin,
       status: origin === "controller" ? "pending" : "delivered",
       requestedAt,
@@ -280,12 +313,13 @@ export class DeviceStore {
       ...(origin === "device" ? { deliveredAt: requestedAt } : {}),
     };
     this.database.prepare(`
-      INSERT INTO actions (id, device_id, type, origin, status, requested_at, delivered_at, attempt_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO actions (id, device_id, type, payload_json, origin, status, requested_at, delivered_at, attempt_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       action.id,
       action.deviceId,
       action.type,
+      action.payload ? JSON.stringify(action.payload) : null,
       action.origin,
       action.status,
       action.requestedAt,
@@ -409,13 +443,13 @@ export class DeviceStore {
       }
       this.database.prepare("DELETE FROM device_apps WHERE device_id = ?").run(deviceId);
       const insertApp = this.database.prepare(`
-        INSERT INTO device_apps (device_id, package_name, name, version_name, version_code, installed_at, updated_at)
+        INSERT INTO device_apps (device_id, application_id, name, version_name, version_code, installed_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
       for (const app of inventory.apps) {
         insertApp.run(
           deviceId,
-          app.packageName,
+          app.applicationId,
           app.name,
           app.versionName,
           app.versionCode,
@@ -466,7 +500,7 @@ function toStorageSnapshot(row: StorageSnapshotRow): StorageSnapshot {
 
 function toInstalledApp(row: InstalledAppRow): AppInventory["apps"][number] {
   return {
-    packageName: row.package_name,
+    applicationId: row.application_id,
     name: row.name,
     versionName: row.version_name,
     versionCode: row.version_code,

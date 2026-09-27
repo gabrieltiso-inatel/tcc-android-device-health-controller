@@ -9,7 +9,7 @@ export const telemetrySchema = {
     androidVersion: { type: "string", minLength: 1, maxLength: 40 },
     apiLevel: { type: "integer", minimum: 26 },
     agentVersion: { type: "string", minLength: 1, maxLength: 40 },
-    capabilities: { type: "array", uniqueItems: true, items: { type: "string", enum: ["collectTelemetry", "collectStorageSummary", "collectAppInventory"] } },
+    capabilities: { type: "array", uniqueItems: true, items: { type: "string", enum: ["collectTelemetry", "collectStorageSummary", "collectAppInventory", "removeApplication"] } },
     batteryPercentage: { type: "integer", minimum: 0, maximum: 100 },
     isCharging: { type: "boolean" },
     capturedAt: { type: "string", format: "date-time" },
@@ -31,7 +31,15 @@ export const actionSchema = {
   type: "object",
   additionalProperties: false,
   required: ["type"],
-  properties: { type: { type: "string", enum: ["collectTelemetry", "collectStorageSummary", "collectAppInventory"] } },
+  properties: {
+    type: { type: "string", enum: ["collectTelemetry", "collectStorageSummary", "collectAppInventory", "removeApplication"] },
+    payload: {
+      type: "object",
+      additionalProperties: false,
+      required: ["applicationId"],
+      properties: { applicationId: { type: "string", minLength: 1, maxLength: 255 } },
+    },
+  },
 } as const;
 
 export const storageSummarySchema = {
@@ -58,9 +66,9 @@ export const appInventorySchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["packageName", "name", "versionName", "versionCode", "installedAt", "updatedAt"],
+        required: ["applicationId", "name", "versionName", "versionCode", "installedAt", "updatedAt"],
         properties: {
-          packageName: { type: "string", minLength: 1, maxLength: 255 },
+          applicationId: { type: "string", minLength: 1, maxLength: 255 },
           name: { type: "string", minLength: 1, maxLength: 255 },
           versionName: { type: "string", maxLength: 120 },
           versionCode: { type: "integer", minimum: 0 },
@@ -79,7 +87,7 @@ export const actionResultSchema = {
   properties: {
     succeeded: { type: "boolean" },
     message: { type: "string", minLength: 1, maxLength: 500 },
-    errorCode: { type: "string", enum: ["unsupported_action", "execution_failed"] },
+    errorCode: { type: "string", enum: ["unsupported_action", "execution_failed", "application_not_found", "application_changed", "approval_declined", "not_allowed", "already_absent"] },
     result: { oneOf: [storageSummarySchema, appInventorySchema] },
   },
 } as const;

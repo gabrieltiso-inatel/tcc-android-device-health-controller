@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   DeviceStore,
+  type ActionPayload,
   type ActionResult,
   type ActionType,
   type AppInventory,
@@ -30,6 +31,11 @@ type ActionResultRequest = {
   message: string;
   errorCode?: string;
   result?: ActionResult;
+};
+
+type ActionRequest = {
+  type: ActionType;
+  payload?: ActionPayload;
 };
 
 export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): void {
@@ -108,7 +114,7 @@ export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): voi
     return { actions: store.getActionHistory(request.params.deviceId) };
   });
 
-  app.post<{ Params: { deviceId: string }; Body: { type: ActionType } }>(
+  app.post<{ Params: { deviceId: string }; Body: ActionRequest }>(
     "/api/devices/:deviceId/actions",
     { schema: { body: actionSchema } },
     async (request, reply) => {
@@ -120,10 +126,15 @@ export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): voi
       if (authorization && !authenticateDeviceRequest(authorization, request.params.deviceId, store)) {
         return unauthorized(reply);
       }
+      const hasPayload = request.body.payload !== undefined;
+      const requiresPayload = request.body.type === "removeApplication";
+      if (hasPayload !== requiresPayload) {
+        return reply.code(400).send({ message: "Action payload is invalid" });
+      }
       if (!store.supportsAction(request.params.deviceId, request.body.type)) {
         return reply.code(409).send({ message: "Action is not supported by this device" });
       }
-      const action = store.createAction(request.params.deviceId, request.body.type, origin);
+      const action = store.createAction(request.params.deviceId, request.body.type, origin, request.body.payload);
       return reply.code(201).send({ action });
     },
   );

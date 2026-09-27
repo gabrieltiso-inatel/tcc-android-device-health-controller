@@ -10,7 +10,7 @@ const telemetry = {
   androidVersion: "14",
   apiLevel: 34,
   agentVersion: "0.1.0",
-  capabilities: ["collectTelemetry", "collectStorageSummary", "collectAppInventory"],
+  capabilities: ["collectTelemetry", "collectStorageSummary", "collectAppInventory", "removeApplication"],
   batteryPercentage: 50,
   isCharging: false,
   capturedAt: "2026-09-19T12:00:00.000Z",
@@ -61,7 +61,7 @@ test("accepts telemetry and creates collection actions", async () => {
       payload: {
         capturedAt: "2026-09-19T12:00:02.000Z",
         apps: [{
-          packageName: "com.example.notes",
+          applicationId: "com.example.notes",
           name: "Notes",
           versionName: "2.1",
           versionCode: 21,
@@ -71,7 +71,7 @@ test("accepts telemetry and creates collection actions", async () => {
       },
     });
     assert.equal(appsResponse.statusCode, 200);
-    assert.equal(appsResponse.json().apps.apps[0].packageName, "com.example.notes");
+  assert.equal(appsResponse.json().apps.apps[0].applicationId, "com.example.notes");
 
     const actionResponse = await server.inject({
       method: "POST",
@@ -80,6 +80,21 @@ test("accepts telemetry and creates collection actions", async () => {
     });
     assert.equal(actionResponse.statusCode, 201);
     assert.equal(actionResponse.json().action.origin, "controller");
+
+    const removeApplicationResponse = await server.inject({
+      method: "POST",
+      url: "/api/devices/device-1/actions",
+      payload: { type: "removeApplication", payload: { applicationId: "application.notes" } },
+    });
+    assert.equal(removeApplicationResponse.statusCode, 201);
+    assert.deepEqual(removeApplicationResponse.json().action.payload, { applicationId: "application.notes" });
+
+    const missingPayloadResponse = await server.inject({
+      method: "POST",
+      url: "/api/devices/device-1/actions",
+      payload: { type: "removeApplication" },
+    });
+    assert.equal(missingPayloadResponse.statusCode, 400);
 
     const storageActionResponse = await server.inject({
       method: "POST",
@@ -96,7 +111,7 @@ test("accepts telemetry and creates collection actions", async () => {
     });
     assert.deepEqual(
       actionsResponse.json().actions.map((action: { type: string }) => action.type),
-      ["collectTelemetry", "collectStorageSummary"],
+      ["collectTelemetry", "removeApplication", "collectStorageSummary"],
     );
 
     const resultResponse = await server.inject({
@@ -139,7 +154,7 @@ test("accepts telemetry and creates collection actions", async () => {
         result: {
           capturedAt: "2026-09-19T12:00:00.000Z",
           apps: [{
-            packageName: "com.example.notes",
+          applicationId: "com.example.notes",
             name: "Notes",
             versionName: "2.1",
             versionCode: 21,
@@ -163,7 +178,7 @@ test("accepts telemetry and creates collection actions", async () => {
 
     const historyResponse = await server.inject({ method: "GET", url: "/api/devices/device-1/history" });
     assert.equal(historyResponse.statusCode, 200);
-    assert.equal(historyResponse.json().actions[0].origin, "device");
+    assert.equal(historyResponse.json().actions.some((action: { origin: string }) => action.origin === "device"), true);
 
     const detailResponse = await server.inject({ method: "GET", url: "/devices/device-1" });
     assert.equal(detailResponse.statusCode, 200);

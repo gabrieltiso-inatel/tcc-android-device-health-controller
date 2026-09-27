@@ -1,4 +1,4 @@
-import type { Action, ActionResult, ActionType, Device } from "./domain.js";
+import type { Action, ActionPayload, ActionResult, ActionType, Device } from "./domain.js";
 
 export type DeviceRow = {
   id: string;
@@ -19,8 +19,9 @@ export type ActionRow = {
   id: string;
   device_id: string;
   type: ActionType;
+  payload_json: string | null;
   origin: "controller" | "device";
-  status: "pending" | "delivered" | "completed" | "failed" | "expired";
+  status: "pending" | "delivered" | "awaiting_approval" | "completed" | "cancelled" | "failed" | "expired";
   requested_at: string;
   delivered_at: string | null;
   completed_at: string | null;
@@ -52,6 +53,7 @@ export function toAction(row: ActionRow): Action {
     id: row.id,
     deviceId: row.device_id,
     type: row.type,
+    ...(row.payload_json ? { payload: JSON.parse(row.payload_json) as ActionPayload } : {}),
     origin: row.origin,
     status: row.status,
     requestedAt: row.requested_at,

@@ -30,7 +30,7 @@ Este documento registra o escopo funcional do controlador. Atualize o estado dos
 ### Consultar aplicativos
 
 - solicitar inventário de aplicativos instalados pelo usuário;
-- exibir nome, pacote, versão e datas de instalação e atualização.
+- exibir nome, identificador, versão e datas de instalação e atualização.
 
 ### Visualizar histórico de ações
 
@@ -49,9 +49,11 @@ Este documento registra o escopo funcional do controlador. Atualize o estado dos
 
 - melhorar a apresentação e filtragem do histórico;
 - ampliar informações disponíveis sobre aplicativos;
-- solicitar ações explícitas de gerenciamento;
+- solicitar a ação explícita `removeApplication` para remover uma aplicação;
 - trabalhar com arquivos autorizados pelo usuário;
 - avaliar ações privilegiadas em modo Device Owner/Profile Owner.
+
+As ações do controlador representam intenções de negócio. O controlador não escolhe a API Android nem diferencia consentimento de política administrativa; essas decisões pertencem ao agent.
 
 ## Fora do escopo atual
 
