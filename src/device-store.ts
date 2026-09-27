@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { toAction, toDevice, type ActionRow, type DeviceRow } from "./store-mappers.js";
-import { isValidStorageSummary } from "./domain.js";
+import { isValidAppInventory, isValidStorageSummary } from "./domain.js";
 export type {
   Action,
   ActionOrigin,
@@ -11,6 +11,7 @@ export type {
   ActionStatus,
   ActionType,
   AppInventory,
+  AppInventorySnapshot,
   Device,
   DeviceCredential,
   InstalledApp,
@@ -26,6 +27,7 @@ import type {
   ActionStatus,
   ActionType,
   AppInventory,
+  AppInventorySnapshot,
   Device,
   DeviceCredential,
   PairingCode,
@@ -46,6 +48,21 @@ type StorageSnapshotRow = {
   available_bytes: number;
   captured_at: string;
   received_at: string;
+};
+
+type AppInventoryRow = {
+  device_id: string;
+  captured_at: string;
+  received_at: string;
+};
+
+type InstalledAppRow = {
+  package_name: string;
+  name: string;
+  version_name: string;
+  version_code: number;
+  installed_at: string;
+  updated_at: string;
 };
 
 export class DeviceStore {
@@ -90,6 +107,17 @@ export class DeviceStore {
       CREATE TABLE IF NOT EXISTS device_storage (
         device_id TEXT PRIMARY KEY, total_bytes INTEGER NOT NULL, used_bytes INTEGER NOT NULL,
         available_bytes INTEGER NOT NULL, captured_at TEXT NOT NULL, received_at TEXT NOT NULL,
+        FOREIGN KEY(device_id) REFERENCES devices(id)
+      );
+      CREATE TABLE IF NOT EXISTS device_app_inventories (
+        device_id TEXT PRIMARY KEY, captured_at TEXT NOT NULL, received_at TEXT NOT NULL,
+        FOREIGN KEY(device_id) REFERENCES devices(id)
+      );
+      CREATE TABLE IF NOT EXISTS device_apps (
+        device_id TEXT NOT NULL, package_name TEXT NOT NULL, name TEXT NOT NULL,
+        version_name TEXT NOT NULL, version_code INTEGER NOT NULL,
+        installed_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        PRIMARY KEY (device_id, package_name),
         FOREIGN KEY(device_id) REFERENCES devices(id)
       );
     `);
@@ -208,6 +236,33 @@ export class DeviceStore {
     return row ? toStorageSnapshot(row) : undefined;
   }
 
+  receiveAppInventory(deviceId: string, inventory: AppInventory): AppInventorySnapshot {
+    if (!isValidAppInventory(inventory)) {
+      throw new RangeError("App inventory is inconsistent");
+    }
+    const receivedAt = this.now();
+    this.upsertAppInventory(deviceId, inventory, receivedAt);
+    this.database.prepare("UPDATE devices SET last_seen_at = ? WHERE id = ?").run(receivedAt, deviceId);
+    return this.getAppInventorySnapshot(deviceId) ?? { ...inventory, receivedAt };
+  }
+
+  getAppInventorySnapshot(deviceId: string): AppInventorySnapshot | undefined {
+    const inventoryRow = this.database.prepare("SELECT * FROM device_app_inventories WHERE device_id = ?")
+      .get(deviceId) as AppInventoryRow | undefined;
+    if (!inventoryRow) {
+      return undefined;
+    }
+    const apps = this.database.prepare(`
+      SELECT package_name, name, version_name, version_code, installed_at, updated_at
+      FROM device_apps WHERE device_id = ? ORDER BY name COLLATE NOCASE ASC
+    `).all(deviceId) as InstalledAppRow[];
+    return {
+      capturedAt: inventoryRow.captured_at,
+      receivedAt: inventoryRow.received_at,
+      apps: apps.map(toInstalledApp),
+    };
+  }
+
   createAction(deviceId: string, type: ActionType, origin: ActionOrigin): Action | undefined {
     if (!this.supportsAction(deviceId, type)) {
       return undefined;
@@ -311,6 +366,9 @@ export class DeviceStore {
     if (succeeded && result && isStorageSummary(result) && isValidStorageSummary(result)) {
       this.upsertStorageSnapshot(row.device_id, result, completedAt);
     }
+    if (succeeded && result && isAppInventory(result) && isValidAppInventory(result)) {
+      this.upsertAppInventory(row.device_id, result, completedAt);
+    }
     return toAction({
       ...row,
       status,
@@ -338,6 +396,43 @@ export class DeviceStore {
       receivedAt,
     );
   }
+
+  private upsertAppInventory(deviceId: string, inventory: AppInventory, receivedAt: string): void {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.database.prepare("SELECT captured_at FROM device_app_inventories WHERE device_id = ?")
+        .get(deviceId) as { captured_at: string } | undefined;
+      if (current && current.captured_at > inventory.capturedAt) {
+        this.database.exec("ROLLBACK");
+        return;
+      }
+      this.database.prepare("DELETE FROM device_apps WHERE device_id = ?").run(deviceId);
+      const insertApp = this.database.prepare(`
+        INSERT INTO device_apps (device_id, package_name, name, version_name, version_code, installed_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const app of inventory.apps) {
+        insertApp.run(
+          deviceId,
+          app.packageName,
+          app.name,
+          app.versionName,
+          app.versionCode,
+          app.installedAt,
+          app.updatedAt,
+        );
+      }
+      this.database.prepare(`
+        INSERT INTO device_app_inventories (device_id, captured_at, received_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(device_id) DO UPDATE SET captured_at = excluded.captured_at, received_at = excluded.received_at
+      `).run(deviceId, inventory.capturedAt, receivedAt);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
 }
 
 function hashToken(token: string): string {
@@ -354,6 +449,10 @@ function isStorageSummary(result: ActionResult): result is StorageSummary {
   return "totalBytes" in result;
 }
 
+function isAppInventory(result: ActionResult): result is AppInventory {
+  return "apps" in result;
+}
+
 function toStorageSnapshot(row: StorageSnapshotRow): StorageSnapshot {
   return {
     totalBytes: row.total_bytes,
@@ -361,5 +460,16 @@ function toStorageSnapshot(row: StorageSnapshotRow): StorageSnapshot {
     availableBytes: row.available_bytes,
     capturedAt: row.captured_at,
     receivedAt: row.received_at,
+  };
+}
+
+function toInstalledApp(row: InstalledAppRow): AppInventory["apps"][number] {
+  return {
+    packageName: row.package_name,
+    name: row.name,
+    versionName: row.version_name,
+    versionCode: row.version_code,
+    installedAt: row.installed_at,
+    updatedAt: row.updated_at,
   };
 }

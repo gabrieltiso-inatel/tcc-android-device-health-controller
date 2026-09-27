@@ -31,8 +31,7 @@ Concluído:
 
 Próximo:
 
-- automatizar a sincronização do inventário de aplicativos sem criar histórico de ações;
-- melhorar a apresentação do histórico compartilhado.
+- melhorar a apresentação e filtragem do histórico;
 
 Depois:
 

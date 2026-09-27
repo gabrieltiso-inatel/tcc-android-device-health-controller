@@ -3,19 +3,21 @@ import {
   DeviceStore,
   type ActionResult,
   type ActionType,
+  type AppInventory,
   type StorageSummary,
   type Telemetry,
 } from "./device-store.js";
 import {
   actionResultSchema,
   actionSchema,
+  appInventorySchema,
   pairingSchema,
   storageSummarySchema,
   telemetrySchema,
 } from "./api-schemas.js";
 import { authenticateDeviceRequest, readBearerToken, unauthorized } from "./auth.js";
 import { withConnectionStatus } from "./web-renderer.js";
-import { isValidStorageSummary } from "./domain.js";
+import { isValidAppInventory, isValidStorageSummary } from "./domain.js";
 
 type PairingRequest = {
   code: string;
@@ -74,6 +76,20 @@ export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): voi
     },
   );
 
+  app.post<{ Params: { deviceId: string }; Body: AppInventory }>(
+    "/api/devices/:deviceId/apps",
+    { schema: { body: appInventorySchema } },
+    async (request, reply) => {
+      if (!authenticateDeviceRequest(request.headers.authorization, request.params.deviceId, store)) {
+        return unauthorized(reply);
+      }
+      if (!isValidAppInventory(request.body)) {
+        return reply.code(400).send({ message: "App inventory is inconsistent" });
+      }
+      return { apps: store.receiveAppInventory(request.params.deviceId, request.body) };
+    },
+  );
+
   app.get<{ Params: { deviceId: string } }>("/api/devices/:deviceId/actions", async (request, reply) => {
     if (!authenticateDeviceRequest(request.headers.authorization, request.params.deviceId, store)) {
       return unauthorized(reply);
@@ -122,6 +138,9 @@ export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): voi
       }
       if (request.body.succeeded && request.body.result && "totalBytes" in request.body.result && !isValidStorageSummary(request.body.result)) {
         return reply.code(400).send({ message: "Storage summary is inconsistent" });
+      }
+      if (request.body.succeeded && request.body.result && "apps" in request.body.result && !isValidAppInventory(request.body.result)) {
+        return reply.code(400).send({ message: "App inventory is inconsistent" });
       }
       const action = store.completeAction(
         request.params.actionId,

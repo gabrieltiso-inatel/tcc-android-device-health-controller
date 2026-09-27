@@ -54,6 +54,25 @@ test("accepts telemetry and creates collection actions", async () => {
     assert.equal(storageResponse.statusCode, 200);
     assert.equal(storageResponse.json().storage.availableBytes, 40);
 
+    const appsResponse = await server.inject({
+      method: "POST",
+      url: "/api/devices/device-1/apps",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        capturedAt: "2026-09-19T12:00:02.000Z",
+        apps: [{
+          packageName: "com.example.notes",
+          name: "Notes",
+          versionName: "2.1",
+          versionCode: 21,
+          installedAt: "2026-09-01T12:00:00.000Z",
+          updatedAt: "2026-09-10T12:00:00.000Z",
+        }],
+      },
+    });
+    assert.equal(appsResponse.statusCode, 200);
+    assert.equal(appsResponse.json().apps.apps[0].packageName, "com.example.notes");
+
     const actionResponse = await server.inject({
       method: "POST",
       url: "/api/devices/device-1/actions",

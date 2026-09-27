@@ -30,6 +30,8 @@ npm run check
 | `POST` | `/api/pairing-codes` | Cria um código temporário de pareamento. |
 | `POST` | `/api/devices/pair` | Pareia um agente e entrega seu token. |
 | `POST` | `/api/devices/{deviceId}/telemetry` | Recebe estado, versão e capacidades do agente. |
+| `POST` | `/api/devices/{deviceId}/storage` | Recebe o snapshot atual de armazenamento. |
+| `POST` | `/api/devices/{deviceId}/apps` | Recebe o snapshot atual do inventário de aplicativos. |
 | `GET` | `/api/devices/{deviceId}/actions` | Entrega ações pendentes ao agente. |
 | `POST` | `/api/devices/{deviceId}/actions` | Cria uma ação com origem no controlador ou dispositivo. |
 | `POST` | `/api/actions/{actionId}/result` | Registra o resultado de uma ação. |
@@ -37,7 +39,7 @@ npm run check
 
 O agente deve enviar o token recebido no pareamento através do header `Authorization: Bearer <token>` nas chamadas de telemetria, ações e histórico.
 
-O dashboard diferencia `Last contact`, atualizado quando o agente consulta ações, de `Telemetry captured`, que representa o instante da última coleta recebida. Na tela do dispositivo, as seções de armazenamento e aplicativos permitem solicitar atualizações explícitas.
+O dashboard diferencia `Last contact`, atualizado quando o agente envia estado ou consulta ações, de `Telemetry captured`, que representa o instante da última coleta recebida. Os snapshots atuais de armazenamento e aplicativos são atualizados automaticamente, e a tela do dispositivo também permite solicitar atualizações explícitas.
 
 Ações do controlador entregues sem confirmação voltam a ficar disponíveis após 60 segundos. Depois de três entregas sem resultado, o controlador marca a ação como `expired`.
 

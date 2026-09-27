@@ -16,6 +16,8 @@ O controlador mantém o estado conhecido dos dispositivos, recebe observações,
 
 O estado atual de armazenamento fica em `device_storage`, separado do histórico de ações. O registro é substituído pelo último resumo recebido, enquanto ações explícitas continuam sendo registradas em `actions`.
 
+O inventário atual fica em `device_app_inventories` e `device_apps`. A lista de pacotes é substituída atomicamente quando uma coleta completa mais nova chega.
+
 Extraia novos módulos quando uma responsabilidade crescer; não mova lógica de negócio para handlers ou HTML.
 
 ## Fluxos principais
@@ -30,6 +32,8 @@ agent coleta estado
 ```
 
 O resumo de armazenamento segue o mesmo fluxo de observação automática, em um endpoint autenticado próprio, e substitui o snapshot atual em `device_storage` sem criar uma ação.
+
+O inventário de aplicativos segue o mesmo fluxo em um endpoint próprio e atualiza os snapshots sem criar uma ação.
 
 ### Ação do controlador
 

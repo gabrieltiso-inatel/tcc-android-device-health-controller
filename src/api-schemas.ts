@@ -46,7 +46,7 @@ export const storageSummarySchema = {
   },
 } as const;
 
-const appInventorySchema = {
+export const appInventorySchema = {
   type: "object",
   additionalProperties: false,
   required: ["apps", "capturedAt"],

@@ -15,7 +15,12 @@ export function createControllerServer(store = new DeviceStore()) {
       return reply.code(404).type("text/html; charset=utf-8").send("<h1>Device not found</h1>");
     }
     return reply.type("text/html; charset=utf-8").send(
-      renderDeviceDetail(device, store.getActionHistory(device.id), store.getStorageSnapshot(device.id)),
+      renderDeviceDetail(
+        device,
+        store.getActionHistory(device.id),
+        store.getStorageSnapshot(device.id),
+        store.getAppInventorySnapshot(device.id),
+      ),
     );
   });
 

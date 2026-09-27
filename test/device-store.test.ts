@@ -216,6 +216,28 @@ test("stores an app inventory result", () => {
   store.close();
 });
 
+test("stores the current app inventory atomically", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z");
+  store.receiveTelemetry("device-1", telemetry);
+  const inventory = {
+    capturedAt: "2026-09-19T12:00:00.000Z",
+    apps: [{
+      packageName: "com.example.notes",
+      name: "Notes",
+      versionName: "2.1",
+      versionCode: 21,
+      installedAt: "2026-09-01T12:00:00.000Z",
+      updatedAt: "2026-09-10T12:00:00.000Z",
+    }],
+  };
+
+  const snapshot = store.receiveAppInventory("device-1", inventory);
+
+  assert.deepEqual(snapshot.apps, inventory.apps);
+  assert.deepEqual(store.getAppInventorySnapshot("device-1"), snapshot);
+  store.close();
+});
+
 test("rejects an action that the device does not support", () => {
   const store = new DeviceStore(":memory:");
   store.receiveTelemetry("device-1", { ...telemetry, capabilities: [] });

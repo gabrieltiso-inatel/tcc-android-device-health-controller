@@ -51,6 +51,16 @@ export type AppInventory = {
   capturedAt: string;
 };
 
+export type AppInventorySnapshot = AppInventory & {
+  receivedAt: string;
+};
+
+export function isValidAppInventory(inventory: AppInventory): boolean {
+  const packageNames = inventory.apps.map((app) => app.packageName);
+  return new Set(packageNames).size === packageNames.length &&
+    inventory.apps.every((app) => Number.isSafeInteger(app.versionCode) && app.versionCode >= 0);
+}
+
 export type ActionResult = StorageSummary | AppInventory;
 
 export type Action = {

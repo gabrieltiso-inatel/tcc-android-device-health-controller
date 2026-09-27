@@ -1,4 +1,4 @@
-import type { Action, ActionResult, AppInventory, Device, StorageSnapshot, StorageSummary } from "./domain.js";
+import type { Action, ActionResult, AppInventory, AppInventorySnapshot, Device, StorageSnapshot, StorageSummary } from "./domain.js";
 
 export type DeviceWithConnectionStatus = Device & { status: "online" | "stale" };
 
@@ -14,7 +14,12 @@ export function renderDashboard(devices: DeviceWithConnectionStatus[]): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Device Health Controller</title><style>${styles()}</style></head><body><main><h1>Devices</h1><p class="hint">Select a device to view details and action history.</p><section class="card"><button type="button" onclick="createPairingCode()">Add device</button><p id="pairing-code" class="hint"></p></section><table><thead><tr><th>Device</th><th>Battery</th><th>Last contact</th><th>Telemetry captured</th></tr></thead><tbody>${rows}</tbody></table></main><script>async function createPairingCode(){const response=await fetch('/api/pairing-codes',{method:'POST'});const body=await response.json();document.getElementById('pairing-code').textContent='Pairing code: '+body.pairingCode.code+' (expires in 5 minutes)'}</script></body></html>`;
 }
 
-export function renderDeviceDetail(device: Device, actions: Action[], storageSnapshot?: StorageSnapshot): string {
+export function renderDeviceDetail(
+  device: Device,
+  actions: Action[],
+  storageSnapshot?: StorageSnapshot,
+  appInventorySnapshot?: AppInventorySnapshot,
+): string {
   const storageActions = actions.filter((action) => action.type === "collectStorageSummary");
   const latestActionStorage = storageActions
     .find((action) => action.status === "completed" && isStorageSummary(action.result))?.result as StorageSummary | undefined;
@@ -30,8 +35,9 @@ export function renderDeviceDetail(device: Device, actions: Action[], storageSna
     ? `<button id="storage-action" type="button"${activeStorageAction ? " disabled" : ""}>${activeStorageAction ? "Update in progress…" : "Update storage"}</button><p id="storage-status" class="hint" role="status">${activeStorageAction ? "Waiting for the device to respond." : ""}</p>`
     : '<p class="hint">This agent does not support storage collection.</p>';
   const appActions = actions.filter((action) => action.type === "collectAppInventory");
-  const latestAppInventory = appActions
+  const latestActionAppInventory = appActions
     .find((action) => action.status === "completed" && isAppInventory(action.result))?.result as AppInventory | undefined;
+  const latestAppInventory = appInventorySnapshot ?? latestActionAppInventory;
   const activeAppAction = appActions.find(
     (action) => action.status === "pending" || action.status === "delivered",
   );
