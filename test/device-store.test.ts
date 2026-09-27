@@ -45,6 +45,35 @@ test("stores an action target as an opaque application identifier", () => {
   store.close();
 });
 
+test("keeps an action awaiting approval until it receives a final result", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "action-1");
+  store.receiveTelemetry("device-1", telemetry);
+  store.createAction("device-1", "removeApplication", "controller", { applicationId: "application.notes" });
+
+  const awaitingApproval = store.completeAction(
+    "action-1",
+    false,
+    "Application removal requires approval",
+    "approval_required",
+    undefined,
+    "awaiting_approval",
+  );
+
+  assert.equal(awaitingApproval?.status, "awaiting_approval");
+  assert.equal(store.getPendingActions("device-1").length, 0);
+
+  const completed = store.completeAction(
+    "action-1",
+    true,
+    "Application removed",
+    "application_removed",
+    undefined,
+    "completed",
+  );
+  assert.equal(completed?.status, "completed");
+  store.close();
+});
+
 test("pairs a device once and authenticates its token", () => {
   const store = new DeviceStore(
     ":memory:",

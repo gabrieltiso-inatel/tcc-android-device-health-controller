@@ -37,7 +37,10 @@ export const actionSchema = {
       type: "object",
       additionalProperties: false,
       required: ["applicationId"],
-      properties: { applicationId: { type: "string", minLength: 1, maxLength: 255 } },
+      properties: {
+        applicationId: { type: "string", minLength: 1, maxLength: 255 },
+        expectedVersionCode: { type: "integer", minimum: 0 },
+      },
     },
   },
 } as const;
@@ -86,8 +89,9 @@ export const actionResultSchema = {
   required: ["succeeded", "message"],
   properties: {
     succeeded: { type: "boolean" },
+    status: { type: "string", enum: ["awaiting_approval", "completed", "cancelled", "failed"] },
     message: { type: "string", minLength: 1, maxLength: 500 },
-    errorCode: { type: "string", enum: ["unsupported_action", "execution_failed", "application_not_found", "application_changed", "approval_declined", "not_allowed", "already_absent"] },
+    errorCode: { type: "string", enum: ["approval_required", "unsupported_action", "execution_failed", "application_removed", "application_not_found", "application_changed", "approval_declined", "not_allowed", "already_absent"] },
     result: { oneOf: [storageSummarySchema, appInventorySchema] },
   },
 } as const;

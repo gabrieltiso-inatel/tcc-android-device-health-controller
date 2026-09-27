@@ -45,6 +45,12 @@ Este documento registra o escopo funcional do controlador. Atualize o estado dos
 - telemetria básica, armazenamento e inventário de aplicativos já são sincronizados automaticamente;
 - sincronizações automáticas futuras não devem gerar histórico de ações.
 
+### Remover aplicação
+
+- solicitar `removeApplication` com identificador e versão observada;
+- acompanhar entrega, aprovação, conclusão, cancelamento e falha;
+- manter o histórico e o inventário coerentes após o resultado.
+
 ## Planejado
 
 - melhorar a apresentação e filtragem do histórico;

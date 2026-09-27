@@ -40,7 +40,7 @@ Concluído:
 
 Próximo:
 
-- definir e implementar a ação de domínio `removeApplication`, preservando o contrato e o estilo atuais;
+- validar a experiência da ação de domínio `removeApplication` no fluxo ponta a ponta;
 
 Depois:
 

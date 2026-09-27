@@ -28,6 +28,7 @@ type PairingRequest = {
 
 type ActionResultRequest = {
   succeeded: boolean;
+  status?: "awaiting_approval" | "completed" | "cancelled" | "failed";
   message: string;
   errorCode?: string;
   result?: ActionResult;
@@ -153,12 +154,20 @@ export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): voi
       if (request.body.succeeded && request.body.result && "apps" in request.body.result && !isValidAppInventory(request.body.result)) {
         return reply.code(400).send({ message: "App inventory is inconsistent" });
       }
+      const status = request.body.status ?? (request.body.succeeded ? "completed" : "failed");
+      if (status === "completed" && !request.body.succeeded) {
+        return reply.code(400).send({ message: "Completed action must succeed" });
+      }
+      if (status !== "completed" && request.body.succeeded) {
+        return reply.code(400).send({ message: "Non-completed action cannot succeed" });
+      }
       const action = store.completeAction(
         request.params.actionId,
         request.body.succeeded,
         request.body.message,
         request.body.errorCode,
         request.body.result,
+        status,
       );
       return action ? { action } : reply.code(404).send({ message: "Pending action not found" });
     },

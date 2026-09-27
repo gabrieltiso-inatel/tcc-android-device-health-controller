@@ -60,6 +60,7 @@ agent registra Action(origin=device, status=delivered)
 - ações só podem ser criadas quando o dispositivo anuncia a capability correspondente;
 - capabilities representam capacidades do agent no contrato da aplicação, não permissões ou APIs Android;
 - ações representam intenções de negócio; estratégias de consentimento e administração ficam fora do controlador;
+- uma ação pode permanecer em `awaiting_approval` sem voltar para a fila de entrega;
 - tokens são armazenados como hash e nunca devem aparecer em logs;
 - resultados de erro não expõem detalhes internos;
 - ações do controlador suportam retry e expiração;

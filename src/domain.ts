@@ -1,9 +1,11 @@
 export type ActionType = "collectTelemetry" | "collectStorageSummary" | "collectAppInventory" | "removeApplication";
 export type ActionOrigin = "controller" | "device";
 export type ActionStatus = "pending" | "delivered" | "awaiting_approval" | "completed" | "cancelled" | "failed" | "expired";
+export type ActionResultStatus = "awaiting_approval" | "completed" | "cancelled" | "failed";
 
 export type ApplicationTarget = {
   applicationId: string;
+  expectedVersionCode?: number;
 };
 
 export type ActionPayload = ApplicationTarget;

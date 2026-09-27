@@ -9,6 +9,7 @@ export type {
   ActionPayload,
   ActionOrigin,
   ActionResult,
+  ActionResultStatus,
   ActionStatus,
   ActionType,
   AppInventory,
@@ -26,6 +27,7 @@ import type {
   ActionPayload,
   ActionOrigin,
   ActionResult,
+  ActionResultStatus,
   ActionStatus,
   ActionType,
   AppInventory,
@@ -387,27 +389,27 @@ export class DeviceStore {
     message: string,
     resultCode?: string,
     result?: ActionResult,
+    status: ActionResultStatus = succeeded ? "completed" : "failed",
   ): Action | undefined {
-    const row = this.database.prepare("SELECT * FROM actions WHERE id = ? AND status IN ('pending', 'delivered')")
+    const row = this.database.prepare("SELECT * FROM actions WHERE id = ? AND status IN ('pending', 'delivered', 'awaiting_approval')")
       .get(actionId) as ActionRow | undefined;
     if (!row) {
       return undefined;
     }
     const completedAt = this.now();
-    const status: ActionStatus = succeeded ? "completed" : "failed";
-    const resultJson = succeeded && result ? JSON.stringify(result) : null;
+    const resultJson = status === "completed" && result ? JSON.stringify(result) : null;
     this.database.prepare("UPDATE actions SET status = ?, completed_at = ?, result_code = ?, result_message = ?, result_json = ? WHERE id = ?")
-      .run(status, completedAt, resultCode ?? null, message, resultJson, actionId);
-    if (succeeded && result && isStorageSummary(result) && isValidStorageSummary(result)) {
+      .run(status, status === "awaiting_approval" ? null : completedAt, resultCode ?? null, message, resultJson, actionId);
+    if (status === "completed" && result && isStorageSummary(result) && isValidStorageSummary(result)) {
       this.upsertStorageSnapshot(row.device_id, result, completedAt);
     }
-    if (succeeded && result && isAppInventory(result) && isValidAppInventory(result)) {
+    if (status === "completed" && result && isAppInventory(result) && isValidAppInventory(result)) {
       this.upsertAppInventory(row.device_id, result, completedAt);
     }
     return toAction({
       ...row,
       status,
-      completed_at: completedAt,
+      completed_at: status === "awaiting_approval" ? null : completedAt,
       result_code: resultCode ?? null,
       result_message: message,
       result_json: resultJson,
