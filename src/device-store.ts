@@ -32,6 +32,7 @@ import type {
   DeviceCredential,
   PairingCode,
   StorageSnapshot,
+  StorageSummary,
   Telemetry,
 } from "./domain.js";
 
