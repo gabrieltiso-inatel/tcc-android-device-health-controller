@@ -24,6 +24,19 @@ export type StorageSummary = {
   capturedAt: string;
 };
 
+export type StorageSnapshot = StorageSummary & {
+  receivedAt: string;
+};
+
+export function isValidStorageSummary(summary: StorageSummary): boolean {
+  const valuesAreValid = [summary.totalBytes, summary.usedBytes, summary.availableBytes]
+    .every((value) => Number.isSafeInteger(value) && value >= 0);
+  return valuesAreValid &&
+    summary.usedBytes <= summary.totalBytes &&
+    summary.availableBytes <= summary.totalBytes &&
+    summary.usedBytes + summary.availableBytes <= summary.totalBytes;
+}
+
 export type InstalledApp = {
   packageName: string;
   name: string;

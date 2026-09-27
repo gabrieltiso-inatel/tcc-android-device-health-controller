@@ -14,6 +14,8 @@ O controlador mantém o estado conhecido dos dispositivos, recebe observações,
 - `device-store.ts`: persistência SQLite, autenticação e ciclo de vida das ações;
 - `data/controller.db`: banco local padrão.
 
+O estado atual de armazenamento fica em `device_storage`, separado do histórico de ações. O registro é substituído pelo último resumo recebido, enquanto ações explícitas continuam sendo registradas em `actions`.
+
 Extraia novos módulos quando uma responsabilidade crescer; não mova lógica de negócio para handlers ou HTML.
 
 ## Fluxos principais
@@ -26,6 +28,8 @@ agent coleta estado
 → controlador atualiza o estado atual
 → nenhum histórico de ação é criado
 ```
+
+O resumo de armazenamento segue o mesmo fluxo de observação automática, em um endpoint autenticado próprio, e substitui o snapshot atual em `device_storage` sem criar uma ação.
 
 ### Ação do controlador
 

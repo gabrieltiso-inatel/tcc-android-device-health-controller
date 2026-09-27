@@ -31,7 +31,7 @@ Concluído:
 
 Próximo:
 
-- automatizar sincronizações de estado sem criar histórico de ações;
+- automatizar a sincronização do inventário de aplicativos sem criar histórico de ações;
 - melhorar a apresentação do histórico compartilhado.
 
 Depois:

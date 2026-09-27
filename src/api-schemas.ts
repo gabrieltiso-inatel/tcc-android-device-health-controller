@@ -34,7 +34,7 @@ export const actionSchema = {
   properties: { type: { type: "string", enum: ["collectTelemetry", "collectStorageSummary", "collectAppInventory"] } },
 } as const;
 
-const storageSummarySchema = {
+export const storageSummarySchema = {
   type: "object",
   additionalProperties: false,
   required: ["totalBytes", "usedBytes", "availableBytes", "capturedAt"],

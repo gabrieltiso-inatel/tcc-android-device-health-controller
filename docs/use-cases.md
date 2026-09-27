@@ -42,8 +42,8 @@ Este documento registra o escopo funcional do controlador. Atualize o estado dos
 
 ### Sincronizar estado automaticamente
 
-- telemetria básica já é automática;
-- armazenamento e aplicativos ainda dependem de ação explícita;
+- telemetria básica e armazenamento já são sincronizados automaticamente;
+- aplicativos ainda dependem de ação explícita;
 - sincronizações automáticas futuras não devem gerar histórico de ações.
 
 ## Planejado

@@ -40,6 +40,20 @@ test("accepts telemetry and creates collection actions", async () => {
     });
     assert.equal(telemetryResponse.statusCode, 200);
 
+    const storageResponse = await server.inject({
+      method: "POST",
+      url: "/api/devices/device-1/storage",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        totalBytes: 100,
+        usedBytes: 60,
+        availableBytes: 40,
+        capturedAt: "2026-09-19T12:00:01.000Z",
+      },
+    });
+    assert.equal(storageResponse.statusCode, 200);
+    assert.equal(storageResponse.json().storage.availableBytes, 40);
+
     const actionResponse = await server.inject({
       method: "POST",
       url: "/api/devices/device-1/actions",

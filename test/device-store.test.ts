@@ -63,6 +63,65 @@ test("records device contact without replacing telemetry", () => {
   store.close();
 });
 
+test("stores the latest storage snapshot and refreshes device contact", () => {
+  const timestamps = ["2026-09-19T12:00:00.000Z", "2026-09-19T12:00:30.000Z"];
+  const store = new DeviceStore(":memory:", () => timestamps.shift() ?? "2026-09-19T12:00:30.000Z");
+  store.receiveTelemetry("device-1", telemetry);
+
+  const snapshot = store.receiveStorageSummary("device-1", {
+    totalBytes: 100,
+    usedBytes: 60,
+    availableBytes: 40,
+    capturedAt: "2026-09-19T12:00:29.000Z",
+  });
+
+  assert.deepEqual(snapshot, {
+    totalBytes: 100,
+    usedBytes: 60,
+    availableBytes: 40,
+    capturedAt: "2026-09-19T12:00:29.000Z",
+    receivedAt: "2026-09-19T12:00:30.000Z",
+  });
+  assert.deepEqual(store.getStorageSnapshot("device-1"), snapshot);
+  assert.equal(store.getDevice("device-1")?.lastSeenAt, "2026-09-19T12:00:30.000Z");
+  store.close();
+});
+
+test("does not replace a newer storage snapshot with a delayed result", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:01:00.000Z");
+  store.receiveTelemetry("device-1", telemetry);
+  const latest = store.receiveStorageSummary("device-1", {
+    totalBytes: 100,
+    usedBytes: 70,
+    availableBytes: 30,
+    capturedAt: "2026-09-19T12:01:00.000Z",
+  });
+
+  const delayed = store.receiveStorageSummary("device-1", {
+    totalBytes: 100,
+    usedBytes: 60,
+    availableBytes: 40,
+    capturedAt: "2026-09-19T12:00:00.000Z",
+  });
+
+  assert.deepEqual(delayed, latest);
+  assert.deepEqual(store.getStorageSnapshot("device-1"), latest);
+  store.close();
+});
+
+test("rejects an inconsistent storage summary", () => {
+  const store = new DeviceStore(":memory:");
+  store.receiveTelemetry("device-1", telemetry);
+
+  assert.throws(() => store.receiveStorageSummary("device-1", {
+    totalBytes: 100,
+    usedBytes: 80,
+    availableBytes: 40,
+    capturedAt: "2026-09-19T12:00:00.000Z",
+  }), /inconsistent/);
+  store.close();
+});
+
 test("retries action delivery and expires it after the attempt limit", () => {
   let currentTime = "2026-09-19T12:00:00.000Z";
   const store = new DeviceStore(
@@ -124,6 +183,13 @@ test("stores a structured action result", () => {
     capturedAt: "2026-09-19T12:00:00.000Z",
   });
   assert.deepEqual(store.getActionHistory("device-1")[0]?.result, action?.result);
+  assert.deepEqual(store.getStorageSnapshot("device-1"), {
+    totalBytes: 100,
+    usedBytes: 60,
+    availableBytes: 40,
+    capturedAt: "2026-09-19T12:00:00.000Z",
+    receivedAt: "2026-09-19T12:00:00.000Z",
+  });
   store.close();
 });
 

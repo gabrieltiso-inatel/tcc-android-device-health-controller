@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { toAction, toDevice, type ActionRow, type DeviceRow } from "./store-mappers.js";
+import { isValidStorageSummary } from "./domain.js";
 export type {
   Action,
   ActionOrigin,
@@ -14,6 +15,7 @@ export type {
   DeviceCredential,
   InstalledApp,
   PairingCode,
+  StorageSnapshot,
   StorageSummary,
   Telemetry,
 } from "./domain.js";
@@ -27,6 +29,7 @@ import type {
   Device,
   DeviceCredential,
   PairingCode,
+  StorageSnapshot,
   Telemetry,
 } from "./domain.js";
 
@@ -34,6 +37,15 @@ type PairingCodeRow = {
   code: string;
   expires_at: string;
   used_at: string | null;
+};
+
+type StorageSnapshotRow = {
+  device_id: string;
+  total_bytes: number;
+  used_bytes: number;
+  available_bytes: number;
+  captured_at: string;
+  received_at: string;
 };
 
 export class DeviceStore {
@@ -74,6 +86,11 @@ export class DeviceStore {
       CREATE TABLE IF NOT EXISTS device_credentials (
         device_id TEXT PRIMARY KEY, device_name TEXT NOT NULL, token_hash TEXT NOT NULL,
         paired_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS device_storage (
+        device_id TEXT PRIMARY KEY, total_bytes INTEGER NOT NULL, used_bytes INTEGER NOT NULL,
+        available_bytes INTEGER NOT NULL, captured_at TEXT NOT NULL, received_at TEXT NOT NULL,
+        FOREIGN KEY(device_id) REFERENCES devices(id)
       );
     `);
   }
@@ -173,6 +190,22 @@ export class DeviceStore {
 
   recordDeviceContact(deviceId: string): void {
     this.database.prepare("UPDATE devices SET last_seen_at = ? WHERE id = ?").run(this.now(), deviceId);
+  }
+
+  receiveStorageSummary(deviceId: string, summary: StorageSummary): StorageSnapshot {
+    if (!isValidStorageSummary(summary)) {
+      throw new RangeError("Storage summary is inconsistent");
+    }
+    const receivedAt = this.now();
+    this.upsertStorageSnapshot(deviceId, summary, receivedAt);
+    this.database.prepare("UPDATE devices SET last_seen_at = ? WHERE id = ?").run(receivedAt, deviceId);
+    return this.getStorageSnapshot(deviceId) as StorageSnapshot;
+  }
+
+  getStorageSnapshot(deviceId: string): StorageSnapshot | undefined {
+    const row = this.database.prepare("SELECT * FROM device_storage WHERE device_id = ?")
+      .get(deviceId) as StorageSnapshotRow | undefined;
+    return row ? toStorageSnapshot(row) : undefined;
   }
 
   createAction(deviceId: string, type: ActionType, origin: ActionOrigin): Action | undefined {
@@ -275,6 +308,9 @@ export class DeviceStore {
     const resultJson = succeeded && result ? JSON.stringify(result) : null;
     this.database.prepare("UPDATE actions SET status = ?, completed_at = ?, result_code = ?, result_message = ?, result_json = ? WHERE id = ?")
       .run(status, completedAt, resultCode ?? null, message, resultJson, actionId);
+    if (succeeded && result && isStorageSummary(result) && isValidStorageSummary(result)) {
+      this.upsertStorageSnapshot(row.device_id, result, completedAt);
+    }
     return toAction({
       ...row,
       status,
@@ -283,6 +319,24 @@ export class DeviceStore {
       result_message: message,
       result_json: resultJson,
     });
+  }
+
+  private upsertStorageSnapshot(deviceId: string, summary: StorageSummary, receivedAt: string): void {
+    this.database.prepare(`
+      INSERT INTO device_storage (device_id, total_bytes, used_bytes, available_bytes, captured_at, received_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(device_id) DO UPDATE SET total_bytes = excluded.total_bytes,
+      used_bytes = excluded.used_bytes, available_bytes = excluded.available_bytes,
+      captured_at = excluded.captured_at, received_at = excluded.received_at
+      WHERE excluded.captured_at >= device_storage.captured_at
+    `).run(
+      deviceId,
+      summary.totalBytes,
+      summary.usedBytes,
+      summary.availableBytes,
+      summary.capturedAt,
+      receivedAt,
+    );
   }
 }
 
@@ -294,4 +348,18 @@ function matchesToken(token: string, expectedHash: string): boolean {
   const receivedHash = Buffer.from(hashToken(token), "hex");
   const storedHash = Buffer.from(expectedHash, "hex");
   return receivedHash.length === storedHash.length && timingSafeEqual(receivedHash, storedHash);
+}
+
+function isStorageSummary(result: ActionResult): result is StorageSummary {
+  return "totalBytes" in result;
+}
+
+function toStorageSnapshot(row: StorageSnapshotRow): StorageSnapshot {
+  return {
+    totalBytes: row.total_bytes,
+    usedBytes: row.used_bytes,
+    availableBytes: row.available_bytes,
+    capturedAt: row.captured_at,
+    receivedAt: row.received_at,
+  };
 }

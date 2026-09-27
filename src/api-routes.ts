@@ -3,16 +3,19 @@ import {
   DeviceStore,
   type ActionResult,
   type ActionType,
+  type StorageSummary,
   type Telemetry,
 } from "./device-store.js";
 import {
   actionResultSchema,
   actionSchema,
   pairingSchema,
+  storageSummarySchema,
   telemetrySchema,
 } from "./api-schemas.js";
 import { authenticateDeviceRequest, readBearerToken, unauthorized } from "./auth.js";
 import { withConnectionStatus } from "./web-renderer.js";
+import { isValidStorageSummary } from "./domain.js";
 
 type PairingRequest = {
   code: string;
@@ -54,6 +57,20 @@ export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): voi
         return unauthorized(reply);
       }
       return { device: store.receiveTelemetry(request.params.deviceId, request.body) };
+    },
+  );
+
+  app.post<{ Params: { deviceId: string }; Body: StorageSummary }>(
+    "/api/devices/:deviceId/storage",
+    { schema: { body: storageSummarySchema } },
+    async (request, reply) => {
+      if (!authenticateDeviceRequest(request.headers.authorization, request.params.deviceId, store)) {
+        return unauthorized(reply);
+      }
+      if (!isValidStorageSummary(request.body)) {
+        return reply.code(400).send({ message: "Storage summary is inconsistent" });
+      }
+      return { storage: store.receiveStorageSummary(request.params.deviceId, request.body) };
     },
   );
 
@@ -102,6 +119,9 @@ export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): voi
       const token = readBearerToken(request.headers.authorization);
       if (!token || !store.authenticateAction(request.params.actionId, token)) {
         return unauthorized(reply);
+      }
+      if (request.body.succeeded && request.body.result && "totalBytes" in request.body.result && !isValidStorageSummary(request.body.result)) {
+        return reply.code(400).send({ message: "Storage summary is inconsistent" });
       }
       const action = store.completeAction(
         request.params.actionId,
