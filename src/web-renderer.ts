@@ -65,7 +65,7 @@ function renderAppRow(app: AppInventory["apps"][number], actions: Action[], supp
     action.payload && "applicationId" in action.payload && action.payload.applicationId === app.applicationId &&
     ["pending", "delivered", "awaiting_approval"].includes(action.status),
   );
-  const actionCell = supportsRemoval
+  const actionCell = supportsRemoval && app.canRemove
     ? `<button type="button" data-remove-application data-application-id="${escapeHtml(app.applicationId)}" data-version-code="${app.versionCode}"${activeAction ? " disabled" : ""}>${activeAction ? (activeAction.status === "awaiting_approval" ? "Waiting for approval…" : "Removal in progress…") : "Remove"}</button>`
     : "";
   return `<tr><td>${escapeHtml(app.name)}</td><td>${escapeHtml(app.applicationId)}</td><td>${escapeHtml(app.versionName || String(app.versionCode))}</td><td>${escapeHtml(app.updatedAt)}</td><td>${actionCell}</td></tr>`;

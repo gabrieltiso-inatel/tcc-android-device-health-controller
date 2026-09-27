@@ -14,7 +14,7 @@ Este repositório contém o controlador do projeto Android Device Health, uma so
 - O estado atual inclui identificação do dispositivo, bateria, versão do Android, capabilities, armazenamento agregado e inventário de aplicativos instalados pelo usuário.
 - Ações explícitas podem ter origem `controller` ou `device` e compartilham o mesmo histórico auditável.
 - Ações possuem entrega, retry, expiração, idempotência, resultado estruturado e erros seguros.
-- As ações atuais são `collectTelemetry`, `collectStorageSummary` e `collectAppInventory`.
+- As ações atuais são `collectTelemetry`, `collectStorageSummary`, `collectAppInventory` e `removeApplication`.
 - Sincronizações automáticas representam estado observado e não devem criar entradas no histórico de ações.
 - O objetivo não é implementar um MDM completo, mas evoluir casos de uso verificáveis respeitando as limitações e a segurança da plataforma Android.
 
@@ -51,6 +51,8 @@ Depois:
 - implementar operações sobre arquivos somente através das APIs oficiais e consentimento necessário;
 - ampliar ações de gerenciamento possíveis no agent comum;
 - avaliar capacidades adicionais com Device Owner/Profile Owner.
+
+No inventário, `canRemove` é uma decisão do agent sobre a referência concreta. O controlador usa esse sinal apenas para decidir se apresenta a ação de remoção; não interpreta pacote Android nem reimplementa a validação.
 
 ## Context Routing
 

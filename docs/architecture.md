@@ -17,6 +17,7 @@ O controlador mantém o estado conhecido dos dispositivos, recebe observações,
 O estado atual de armazenamento fica em `device_storage`, separado do histórico de ações. O registro é substituído pelo último resumo recebido, enquanto ações explícitas continuam sendo registradas em `actions`.
 
 O inventário atual fica em `device_app_inventories` e `device_apps`. A lista de aplicações é substituída atomicamente quando uma coleta completa mais nova chega.
+Cada aplicação também informa `canRemove`; o controlador usa esse valor somente para apresentar ou ocultar a ação de remoção.
 
 Extraia novos módulos quando uma responsabilidade crescer; não mova lógica de negócio para handlers ou HTML.
 

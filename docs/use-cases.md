@@ -33,6 +33,7 @@ O controlador deve centralizar leituras e intenções de gerenciamento. O fato d
 
 - solicitar inventário de aplicativos instalados pelo usuário;
 - exibir nome, identificador, versão e datas de instalação e atualização.
+- não oferecer remoção para a própria aplicação do agent quando o inventário informar `canRemove=false`.
 
 ### Visualizar histórico de ações
 

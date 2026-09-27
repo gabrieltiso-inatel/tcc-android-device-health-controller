@@ -63,6 +63,7 @@ test("accepts telemetry and creates collection actions", async () => {
         apps: [{
           applicationId: "com.example.notes",
           name: "Notes",
+          canRemove: true,
           versionName: "2.1",
           versionCode: 21,
           installedAt: "2026-09-01T12:00:00.000Z",
@@ -155,7 +156,8 @@ test("accepts telemetry and creates collection actions", async () => {
           capturedAt: "2026-09-19T12:00:00.000Z",
           apps: [{
           applicationId: "com.example.notes",
-            name: "Notes",
+          name: "Notes",
+          canRemove: true,
             versionName: "2.1",
             versionCode: 21,
             installedAt: "2026-09-01T12:00:00.000Z",

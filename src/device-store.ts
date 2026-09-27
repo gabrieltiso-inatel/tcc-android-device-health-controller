@@ -64,6 +64,7 @@ type AppInventoryRow = {
 type InstalledAppRow = {
   application_id: string;
   name: string;
+  can_remove: number;
   version_name: string;
   version_code: number;
   installed_at: string;
@@ -119,7 +120,7 @@ export class DeviceStore {
         FOREIGN KEY(device_id) REFERENCES devices(id)
       );
       CREATE TABLE IF NOT EXISTS device_apps (
-        device_id TEXT NOT NULL, application_id TEXT NOT NULL, name TEXT NOT NULL,
+        device_id TEXT NOT NULL, application_id TEXT NOT NULL, name TEXT NOT NULL, can_remove INTEGER NOT NULL,
         version_name TEXT NOT NULL, version_code INTEGER NOT NULL,
         installed_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         PRIMARY KEY (device_id, application_id),
@@ -131,13 +132,15 @@ export class DeviceStore {
       this.database.exec("ALTER TABLE actions ADD COLUMN payload_json TEXT");
     }
     const appColumns = this.database.prepare("PRAGMA table_info(device_apps)").all() as Array<{ name: string }>;
-    if (appColumns.some((column) => column.name === "package_name")) {
+    if (appColumns.some((column) => column.name === "package_name") || !appColumns.some((column) => column.name === "can_remove")) {
+      const applicationColumn = appColumns.some((column) => column.name === "package_name") ? "package_name" : "application_id";
+      const removableColumn = appColumns.some((column) => column.name === "can_remove") ? "can_remove" : "1";
       this.database.exec("BEGIN IMMEDIATE");
       try {
         this.database.exec("ALTER TABLE device_apps RENAME TO device_apps_legacy");
         this.database.exec(`
           CREATE TABLE device_apps (
-            device_id TEXT NOT NULL, application_id TEXT NOT NULL, name TEXT NOT NULL,
+            device_id TEXT NOT NULL, application_id TEXT NOT NULL, name TEXT NOT NULL, can_remove INTEGER NOT NULL,
             version_name TEXT NOT NULL, version_code INTEGER NOT NULL,
             installed_at TEXT NOT NULL, updated_at TEXT NOT NULL,
             PRIMARY KEY (device_id, application_id),
@@ -145,8 +148,8 @@ export class DeviceStore {
           )
         `);
         this.database.exec(`
-          INSERT INTO device_apps (device_id, application_id, name, version_name, version_code, installed_at, updated_at)
-          SELECT device_id, package_name, name, version_name, version_code, installed_at, updated_at
+          INSERT INTO device_apps (device_id, application_id, name, can_remove, version_name, version_code, installed_at, updated_at)
+          SELECT device_id, ${applicationColumn}, name, ${removableColumn}, version_name, version_code, installed_at, updated_at
           FROM device_apps_legacy
         `);
         this.database.exec("DROP TABLE device_apps_legacy");
@@ -288,7 +291,7 @@ export class DeviceStore {
       return undefined;
     }
     const apps = this.database.prepare(`
-      SELECT application_id, name, version_name, version_code, installed_at, updated_at
+      SELECT application_id, name, can_remove, version_name, version_code, installed_at, updated_at
       FROM device_apps WHERE device_id = ? ORDER BY name COLLATE NOCASE ASC
     `).all(deviceId) as InstalledAppRow[];
     return {
@@ -445,14 +448,15 @@ export class DeviceStore {
       }
       this.database.prepare("DELETE FROM device_apps WHERE device_id = ?").run(deviceId);
       const insertApp = this.database.prepare(`
-        INSERT INTO device_apps (device_id, application_id, name, version_name, version_code, installed_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO device_apps (device_id, application_id, name, can_remove, version_name, version_code, installed_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const app of inventory.apps) {
         insertApp.run(
           deviceId,
           app.applicationId,
           app.name,
+          Number(app.canRemove),
           app.versionName,
           app.versionCode,
           app.installedAt,
@@ -504,6 +508,7 @@ function toInstalledApp(row: InstalledAppRow): AppInventory["apps"][number] {
   return {
     applicationId: row.application_id,
     name: row.name,
+    canRemove: Boolean(row.can_remove),
     versionName: row.version_name,
     versionCode: row.version_code,
     installedAt: row.installed_at,

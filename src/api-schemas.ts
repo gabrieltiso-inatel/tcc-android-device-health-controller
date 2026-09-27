@@ -69,10 +69,11 @@ export const appInventorySchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["applicationId", "name", "versionName", "versionCode", "installedAt", "updatedAt"],
+        required: ["applicationId", "name", "canRemove", "versionName", "versionCode", "installedAt", "updatedAt"],
         properties: {
           applicationId: { type: "string", minLength: 1, maxLength: 255 },
           name: { type: "string", minLength: 1, maxLength: 255 },
+          canRemove: { type: "boolean" },
           versionName: { type: "string", maxLength: 120 },
           versionCode: { type: "integer", minimum: 0 },
           installedAt: { type: "string", format: "date-time" },

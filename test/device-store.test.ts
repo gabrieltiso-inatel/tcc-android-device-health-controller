@@ -244,6 +244,7 @@ test("stores an app inventory result", () => {
     apps: [{
       applicationId: "com.example.notes",
       name: "Notes",
+      canRemove: true,
       versionName: "2.1",
       versionCode: 21,
       installedAt: "2026-09-01T12:00:00.000Z",
@@ -266,6 +267,7 @@ test("stores the current app inventory atomically", () => {
     apps: [{
       applicationId: "com.example.notes",
       name: "Notes",
+      canRemove: true,
       versionName: "2.1",
       versionCode: 21,
       installedAt: "2026-09-01T12:00:00.000Z",

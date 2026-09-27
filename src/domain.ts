@@ -48,6 +48,7 @@ export function isValidStorageSummary(summary: StorageSummary): boolean {
 export type InstalledApp = {
   applicationId: string;
   name: string;
+  canRemove: boolean;
   versionName: string;
   versionCode: number;
   installedAt: string;
@@ -66,7 +67,7 @@ export type AppInventorySnapshot = AppInventory & {
 export function isValidAppInventory(inventory: AppInventory): boolean {
   const applicationIds = inventory.apps.map((app) => app.applicationId);
   return new Set(applicationIds).size === applicationIds.length &&
-    inventory.apps.every((app) => Number.isSafeInteger(app.versionCode) && app.versionCode >= 0);
+    inventory.apps.every((app) => typeof app.canRemove === "boolean" && Number.isSafeInteger(app.versionCode) && app.versionCode >= 0);
 }
 
 export type ActionResult = StorageSummary | AppInventory;
