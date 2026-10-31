@@ -17,9 +17,26 @@ Abra `http://localhost:3000` no navegador. A tela inicial lista os dispositivos;
 
 ## Validação
 
+O workflow `CI` executa build TypeScript e testes automaticamente em pushes e pull requests, usando Node.js 24 e `npm ci`. O resultado aparece na aba **Actions** do GitHub; também é possível executar por **Run workflow**. Não requer secrets e não publica a aplicação.
+
 ```sh
 npm run check
 ```
+
+## Baixar e executar
+
+Na aba **Actions**, abra uma execução bem-sucedida de `CI` e baixe `controller-package` em **Artifacts** (é necessário estar autenticado no GitHub). Extraia o ZIP do artifact e depois o pacote `.tgz`:
+
+```sh
+tar -xzf android-device-health-controller-0.1.0.tgz
+cd package
+npm ci --omit=dev
+npm start
+```
+
+Requer Node.js 24 ou superior. Abra `http://localhost:3000`. No telefone, informe `http://IP-DO-COMPUTADOR:3000` na mesma rede, usando o APK debug de teste. `PORT` permite alterar a porta; o banco fica em `data/controller.db` dentro da pasta de execução. Preserve esse diretório ao atualizar. O servidor aceita conexões da rede; use em rede confiável, sem expor a porta à internet. Hospedagem pública exige revisão de segurança e HTTPS.
+
+Para gerar o pacote localmente: `npm ci && npm run package`. O arquivo estará em `dist/`. O pacote contém aplicação compilada e lockfile; dependências são instaladas no computador de destino.
 
 ## API inicial
 

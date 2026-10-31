@@ -2,6 +2,7 @@
   "name": "android-device-health-controller",
   "version": "0.1.0",
   "private": true,
+  "files": ["dist/*.js", "README.md", "npm-shrinkwrap.json"],
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -11,7 +12,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "test": "tsx --test test/**/*.test.ts",
-    "check": "npm run build && npm test"
+    "check": "npm run build && npm test",
+    "package": "npm run build && node --input-type=module -e \"import { copyFileSync } from 'node:fs'; copyFileSync('package-lock.json', 'npm-shrinkwrap.json');\" && npm pack --pack-destination dist"
   },
   "dependencies": {
     "fastify": "^5.0.0"
