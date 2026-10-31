@@ -17,6 +17,8 @@ Abra `http://localhost:3000` no navegador. A tela inicial lista os dispositivos;
 
 ## Validação
 
+O dashboard apresenta áreas de saúde, armazenamento, apps, arquivos, pendências e histórico. A visualização acompanha o controller a cada 5 segundos sem solicitar novas coletas. Apps e arquivos permitem pesquisa, e o histórico permite filtro por estado; as listas mostram 20 entradas por página. Em telas estreitas, as linhas das tabelas são apresentadas como blocos com rótulos. **Update** solicita uma coleta explícita; remoções sempre pedem aprovação no Android. O agent usa a leitura autenticada `GET /api/devices/{deviceId}/state` para consultar os mesmos snapshots.
+
 O workflow `CI` executa build TypeScript e testes automaticamente em pushes e pull requests, usando Node.js 24 e `npm ci`. O resultado aparece na aba **Actions** do GitHub; também é possível executar por **Run workflow**. Não requer secrets e não publica a aplicação.
 
 ```sh

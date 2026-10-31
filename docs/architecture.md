@@ -6,6 +6,10 @@ O controlador mantém o estado conhecido dos dispositivos, recebe observações,
 
 ## Componentes atuais
 
+A interface usa renderização HTML no servidor (`web-renderer.ts`), estilos em `web-styles.ts` e comportamento de apresentação em `web-client.ts`. A página consulta novamente o HTML a cada 5 segundos enquanto visível, preservando filtros e página selecionada; isso não cria ações nem atualiza o último contato do dispositivo. Listas exibem 20 registros por página no cliente; a API de histórico continua retornando a lista completa.
+
+`GET /api/devices/:deviceId/state` exige token do próprio dispositivo e retorna os snapshots atuais `storage`, `apps` e `files` (ou `null` quando ausentes), com `Cache-Control: no-store`. A consulta não coleta dados, não cria histórico nem registra contato. O agent usa esse endpoint para apresentar a mesma informação do dashboard.
+
 - `server.ts`: composição da aplicação e rotas HTML;
 - `api-routes.ts`: rotas HTTP do contrato com os agents;
 - `api-schemas.ts`: validação dos payloads HTTP;

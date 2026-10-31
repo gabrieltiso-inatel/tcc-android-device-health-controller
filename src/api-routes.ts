@@ -71,6 +71,18 @@ export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): voi
     },
   );
 
+  app.get<{ Params: { deviceId: string } }>("/api/devices/:deviceId/state", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    if (!authenticateDeviceRequest(request.headers.authorization, request.params.deviceId, store)) {
+      return unauthorized(reply);
+    }
+    return {
+      storage: store.getStorageSnapshot(request.params.deviceId) ?? null,
+      apps: store.getAppInventorySnapshot(request.params.deviceId) ?? null,
+      files: store.getFileInventorySnapshot(request.params.deviceId) ?? null,
+    };
+  });
+
   app.post<{ Params: { deviceId: string }; Body: StorageSummary }>(
     "/api/devices/:deviceId/storage",
     { schema: { body: storageSummarySchema } },

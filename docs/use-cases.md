@@ -40,6 +40,8 @@ O controlador deve centralizar leituras e intenções de gerenciamento. O fato d
 - registrar ações iniciadas pelo `controller` ou `device`;
 - mostrar estado, origem, horários, tentativas e resultado;
 - aplicar retry, expiração e prevenção de execução duplicada.
+- filtrar por estado e navegar em páginas de 20 entradas, com nomes amigáveis e datas relativas;
+- acompanhar mudanças automaticamente sem recarregar a página inteira.
 
 ### Consultar arquivos autorizados
 

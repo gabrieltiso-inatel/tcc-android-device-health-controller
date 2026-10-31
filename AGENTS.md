@@ -16,6 +16,7 @@ Este repositório contém o controlador do projeto Android Device Health, uma so
 - Ações possuem entrega, retry, expiração, idempotência, resultado estruturado e erros seguros.
 - As ações atuais são `collectTelemetry`, `collectStorageSummary`, `collectAppInventory`, `collectFileInventory`, `removeApplication` e `removeFile`.
 - Sincronizações automáticas representam estado observado e não devem criar entradas no histórico de ações.
+- A leitura autenticada `GET /api/devices/:deviceId/state` compartilha os snapshots com o agent sem executar ações. A UI mantém filtros e paginação local e atualiza a visualização automaticamente.
 - O objetivo não é implementar um MDM completo, mas evoluir casos de uso verificáveis respeitando as limitações e a segurança da plataforma Android.
 
 ## Current Direction
