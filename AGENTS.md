@@ -50,7 +50,7 @@ Próximo:
 Depois:
 
 - melhorar a apresentação e filtragem do histórico;
-- `removeFile` para arquivos em pastas autorizadas já usa referência opaca, revisão esperada e consentimento explícito; ampliar para mídia compartilhada somente com a API oficial correspondente;
+- `removeFile` para pastas e mídia autorizada usa referência opaca, revisão esperada e consentimento; o agent escolhe o fluxo oficial sem alterar a intenção no controller;
 - ampliar ações de gerenciamento possíveis no agent comum;
 - avaliar capacidades adicionais com Device Owner/Profile Owner.
 

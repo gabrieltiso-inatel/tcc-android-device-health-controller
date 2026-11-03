@@ -25,6 +25,8 @@ Cada aplicação também informa `canRemove`; o controlador usa esse valor somen
 
 O inventário atual de arquivos fica em `device_file_inventories` e `device_files`. O controller armazena somente metadados, fontes e referências opacas; URIs e caminhos físicos permanecem no agent.
 
+`canRemove` inclui operações que o agent pode executar mediante consentimento. A remoção de mídia usa o mesmo `removeFile` e os estados existentes; confirmação oficial, URI e retomada são responsabilidades internas do agent.
+
 Extraia novos módulos quando uma responsabilidade crescer; não mova lógica de negócio para handlers ou HTML.
 
 ## Fluxos principais

@@ -68,7 +68,7 @@ O controlador deve centralizar leituras e intenções de gerenciamento. O fato d
 - solicitar a remoção usando uma referência opaca e a revisão observada;
 - deixar o agent revalidar o arquivo e aplicar o consentimento oficial necessário;
 - atualizar o inventário após o resultado;
-- atualmente permitir a ação apenas para arquivos em pastas autorizadas pelo usuário.
+- permitir a ação quando o agent informar `canRemove`, incluindo fontes que exijam confirmação oficial; pastas e mídia acessível usam a mesma intenção `removeFile`.
 
 ## Planejado
 
