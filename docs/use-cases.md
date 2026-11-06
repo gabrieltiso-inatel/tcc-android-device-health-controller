@@ -50,18 +50,20 @@ O controlador deve centralizar leituras e intenções de gerenciamento. O fato d
 - preservar o snapshot atual separado do histórico de ações;
 - tratar `fileId`, `sourceId` e `revision` como referências opacas.
 
+### Remover aplicação
+
+- solicitar `removeApplication` com identificador e versão observada;
+- acompanhar entrega, aprovação, conclusão, cancelamento e falha;
+- manter o primeiro resultado final e aceitar reenvios idênticos sem alteração;
+- retirar a aplicação do inventário atual quando a remoção for concluída;
+- mostrar o último resultado de remoção junto a cada aplicativo.
+
 ## Parcial
 
 ### Sincronizar estado automaticamente
 
 - telemetria básica, armazenamento e inventário de aplicativos já são sincronizados automaticamente;
 - sincronizações automáticas futuras não devem gerar histórico de ações.
-
-### Remover aplicação
-
-- solicitar `removeApplication` com identificador e versão observada;
-- acompanhar entrega, aprovação, conclusão, cancelamento e falha;
-- manter o histórico e o inventário coerentes após o resultado.
 
 ### Remover arquivo
 

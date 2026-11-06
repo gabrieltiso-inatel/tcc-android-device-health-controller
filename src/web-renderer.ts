@@ -49,8 +49,13 @@ function appsSection(device: Device, actions: Action[], inventory?: AppInventory
 }
 
 function appRow(device: Device, actions: Action[], app: InstalledApp): string {
-  const active = actions.find((action) => action.type === "removeApplication" && action.payload && "applicationId" in action.payload && action.payload.applicationId === app.applicationId && activeStatuses.includes(action.status));
-  return `<tr data-entry data-search="${escapeHtml(`${app.name} ${app.applicationId}`.toLowerCase())}"><td data-label="Application"><strong>${escapeHtml(app.name)}</strong><span class="subtext">${escapeHtml(app.applicationId)}</span></td><td data-label="Version">${escapeHtml(app.versionName || String(app.versionCode))}</td><td data-label="Updated">${relativeTime(app.updatedAt)}</td><td data-label="Action">${app.canRemove && device.capabilities.includes("removeApplication") ? removalButton("removeApplication", app.applicationId, app.name, String(app.versionCode), active) : '<span class="hint">Removal unavailable</span>'}</td></tr>`;
+  const removals = actions.filter((action) => action.type === "removeApplication" && action.payload && "applicationId" in action.payload && action.payload.applicationId === app.applicationId);
+  const active = removals.find((action) => activeStatuses.includes(action.status));
+  const latest = removals[0];
+  const latestResult = !active && latest?.resultMessage
+    ? `<span class="subtext">${escapeHtml(latest.resultMessage)} · ${relativeTime(latest.completedAt ?? latest.requestedAt)}</span>`
+    : "";
+  return `<tr data-entry data-search="${escapeHtml(`${app.name} ${app.applicationId}`.toLowerCase())}"><td data-label="Application"><strong>${escapeHtml(app.name)}</strong><span class="subtext">${escapeHtml(app.applicationId)}</span></td><td data-label="Version">${escapeHtml(app.versionName || String(app.versionCode))}</td><td data-label="Updated">${relativeTime(app.updatedAt)}</td><td data-label="Action">${app.canRemove && device.capabilities.includes("removeApplication") ? removalButton("removeApplication", app.applicationId, app.name, String(app.versionCode), active) : '<span class="hint">Removal unavailable</span>'}${latestResult}</td></tr>`;
 }
 
 function filesSection(device: Device, actions: Action[], inventory?: FileInventorySnapshot): string {

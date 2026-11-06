@@ -206,7 +206,12 @@ export function registerApiRoutes(app: FastifyInstance, store: DeviceStore): voi
         request.body.result,
         status,
       );
-      return action ? { action } : reply.code(404).send({ message: "Pending action not found" });
+      if (action) {
+        return { action };
+      }
+      return store.getAction(request.params.actionId)
+        ? reply.code(409).send({ message: "Action is already finalized" })
+        : reply.code(404).send({ message: "Pending action not found" });
     },
   );
 }
