@@ -439,6 +439,11 @@ export class DeviceStore {
     return rows.map(toAction);
   }
 
+  getAction(actionId: string): Action | undefined {
+    const row = this.database.prepare("SELECT * FROM actions WHERE id = ?").get(actionId) as ActionRow | undefined;
+    return row ? toAction(row) : undefined;
+  }
+
   private expireActions(deviceId: string, currentTime: string): void {
     const retryBefore = new Date(Date.parse(currentTime) - this.deliveryTimeoutMilliseconds).toISOString();
     this.database.prepare(`
@@ -462,10 +467,12 @@ export class DeviceStore {
     result?: ActionResult,
     status: ActionResultStatus = succeeded ? "completed" : "failed",
   ): Action | undefined {
-    const row = this.database.prepare("SELECT * FROM actions WHERE id = ? AND status IN ('pending', 'delivered', 'awaiting_approval')")
-      .get(actionId) as ActionRow | undefined;
+    const row = this.database.prepare("SELECT * FROM actions WHERE id = ?").get(actionId) as ActionRow | undefined;
     if (!row) {
       return undefined;
+    }
+    if (!openActionStatuses.includes(row.status as ActionStatus)) {
+      return row.status === status ? toAction(row) : undefined;
     }
     const completedAt = this.now();
     const resultJson = status === "completed" && result ? JSON.stringify(result) : null;
@@ -480,6 +487,9 @@ export class DeviceStore {
     if (status === "completed" && result && isFileInventory(result) && isValidFileInventory(result)) {
       this.upsertFileInventory(row.device_id, result, completedAt);
     }
+    if (status === "completed") {
+      this.removeTargetFromInventory(toAction(row));
+    }
     return toAction({
       ...row,
       status,
@@ -488,6 +498,17 @@ export class DeviceStore {
       result_message: message,
       result_json: resultJson,
     });
+  }
+
+  private removeTargetFromInventory(action: Action): void {
+    if (action.type === "removeApplication" && action.payload && "applicationId" in action.payload) {
+      this.database.prepare("DELETE FROM device_apps WHERE device_id = ? AND application_id = ?")
+        .run(action.deviceId, action.payload.applicationId);
+    }
+    if (action.type === "removeFile" && action.payload && "fileId" in action.payload) {
+      this.database.prepare("DELETE FROM device_files WHERE device_id = ? AND file_id = ?")
+        .run(action.deviceId, action.payload.fileId);
+    }
   }
 
   private upsertStorageSnapshot(deviceId: string, summary: StorageSummary, receivedAt: string): void {
@@ -575,6 +596,8 @@ export class DeviceStore {
     }
   }
 }
+
+const openActionStatuses: ActionStatus[] = ["pending", "delivered", "awaiting_approval"];
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");

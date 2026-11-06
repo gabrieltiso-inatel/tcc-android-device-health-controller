@@ -41,15 +41,15 @@ Concluído:
 - histórico compartilhado de ações;
 - telemetria, resumo de armazenamento e inventário de aplicativos;
 - contrato e snapshot inicial de inventário de arquivos;
-- pareamento, autenticação, retry, expiração e idempotência.
+- pareamento, autenticação, retry, expiração e idempotência;
+- `removeApplication` validado ponta a ponta, com primeiro resultado final prevalecendo, conflito `409` para resultados divergentes e inventário coerente após a conclusão.
 
 Próximo:
 
-- validar a experiência da ação de domínio `removeApplication` no fluxo ponta a ponta;
+- melhorar a apresentação e filtragem do histórico;
 
 Depois:
 
-- melhorar a apresentação e filtragem do histórico;
 - `removeFile` para pastas e mídia autorizada usa referência opaca, revisão esperada e consentimento; o agent escolhe o fluxo oficial sem alterar a intenção no controller;
 - ampliar ações de gerenciamento possíveis no agent comum;
 - avaliar capacidades adicionais com Device Owner/Profile Owner.

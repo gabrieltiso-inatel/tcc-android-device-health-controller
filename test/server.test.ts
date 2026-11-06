@@ -16,6 +16,92 @@ const telemetry = {
   capturedAt: "2026-09-19T12:00:00.000Z",
 };
 
+async function pairDevice(server: ReturnType<typeof createControllerServer>): Promise<string> {
+  const pairingCodeResponse = await server.inject({ method: "POST", url: "/api/pairing-codes" });
+  const code = pairingCodeResponse.json().pairingCode.code as string;
+  const pairingResponse = await server.inject({
+    method: "POST",
+    url: "/api/devices/pair",
+    payload: { code, deviceId: "device-1", deviceName: "Pixel" },
+  });
+  const token = pairingResponse.json().token as string;
+  await server.inject({
+    method: "POST",
+    url: "/api/devices/device-1/telemetry",
+    headers: { authorization: `Bearer ${token}` },
+    payload: telemetry,
+  });
+  return token;
+}
+
+test("keeps the first final result of an application removal", async () => {
+  const store = new DeviceStore(":memory:");
+  const server = createControllerServer(store);
+  await server.ready();
+
+  try {
+    const token = await pairDevice(server);
+    await server.inject({
+      method: "POST",
+      url: "/api/devices/device-1/apps",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        capturedAt: "2026-09-19T12:00:02.000Z",
+        apps: [{
+          applicationId: "com.example.notes",
+          name: "Notes",
+          canRemove: true,
+          versionName: "2.1",
+          versionCode: 21,
+          installedAt: "2026-09-01T12:00:00.000Z",
+          updatedAt: "2026-09-10T12:00:00.000Z",
+        }],
+      },
+    });
+    const removalResponse = await server.inject({
+      method: "POST",
+      url: "/api/devices/device-1/actions",
+      payload: { type: "removeApplication", payload: { applicationId: "com.example.notes", expectedVersionCode: 21 } },
+    });
+    const actionId = removalResponse.json().action.id as string;
+    const cancelledResult = {
+      succeeded: false,
+      status: "cancelled",
+      message: "Application removal cancelled",
+      errorCode: "approval_declined",
+    };
+
+    const firstResponse = await server.inject({
+      method: "POST",
+      url: `/api/actions/${actionId}/result`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: cancelledResult,
+    });
+    const repeatedResponse = await server.inject({
+      method: "POST",
+      url: `/api/actions/${actionId}/result`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: cancelledResult,
+    });
+    const conflictingResponse = await server.inject({
+      method: "POST",
+      url: `/api/actions/${actionId}/result`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { succeeded: true, status: "completed", message: "Application removed", errorCode: "application_removed" },
+    });
+    const detailResponse = await server.inject({ method: "GET", url: "/devices/device-1" });
+
+    assert.equal(firstResponse.statusCode, 200);
+    assert.equal(repeatedResponse.statusCode, 200);
+    assert.equal(repeatedResponse.json().action.status, "cancelled");
+    assert.equal(conflictingResponse.statusCode, 409);
+    assert.match(detailResponse.body, /Application removal cancelled/);
+    assert.match(detailResponse.body, /com\.example\.notes/);
+  } finally {
+    await server.close();
+  }
+});
+
 test("accepts telemetry and creates collection actions", async () => {
   const store = new DeviceStore(":memory:");
   const server = createControllerServer(store);
