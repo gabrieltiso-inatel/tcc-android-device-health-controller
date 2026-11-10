@@ -15,6 +15,30 @@ const telemetry = {
   capturedAt: "2026-09-19T11:59:00.000Z",
 };
 
+const notesAndCalendarInventory = {
+  capturedAt: "2026-09-19T12:00:00.000Z",
+  apps: [
+    {
+      applicationId: "com.example.notes",
+      name: "Notes",
+      canRemove: true,
+      versionName: "2.1",
+      versionCode: 21,
+      installedAt: "2026-09-01T12:00:00.000Z",
+      updatedAt: "2026-09-10T12:00:00.000Z",
+    },
+    {
+      applicationId: "com.example.calendar",
+      name: "Calendar",
+      canRemove: true,
+      versionName: "1.0",
+      versionCode: 10,
+      installedAt: "2026-09-01T12:00:00.000Z",
+      updatedAt: "2026-09-10T12:00:00.000Z",
+    },
+  ],
+};
+
 test("stores telemetry and completes a controller action", () => {
   const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "action-1");
   store.receiveTelemetry("device-1", telemetry);
@@ -71,6 +95,63 @@ test("keeps an action awaiting approval until it receives a final result", () =>
     "completed",
   );
   assert.equal(completed?.status, "completed");
+  store.close();
+});
+
+test("accepts a repeated final result without changing the recorded outcome", () => {
+  const timestamps = ["2026-09-19T12:00:00.000Z", "2026-09-19T12:00:10.000Z", "2026-09-19T12:00:20.000Z"];
+  const store = new DeviceStore(":memory:", () => timestamps.shift() ?? "2026-09-19T12:00:20.000Z", () => "action-1");
+  store.receiveTelemetry("device-1", telemetry);
+  store.createAction("device-1", "removeApplication", "controller", { applicationId: "application.notes" });
+  const completed = store.completeAction("action-1", true, "Application removed", "application_removed", undefined, "completed");
+
+  const repeated = store.completeAction("action-1", true, "Application was already absent", "already_absent", undefined, "completed");
+
+  assert.deepEqual(repeated, completed);
+  assert.equal(store.getAction("action-1")?.resultCode, "application_removed");
+  store.close();
+});
+
+test("rejects a different result for a finalized action", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "action-1");
+  store.receiveTelemetry("device-1", telemetry);
+  store.createAction("device-1", "removeApplication", "controller", { applicationId: "application.notes" });
+  store.completeAction("action-1", false, "Application removal cancelled", "approval_declined", undefined, "cancelled");
+
+  const conflicting = store.completeAction("action-1", true, "Application removed", "application_removed", undefined, "completed");
+
+  assert.equal(conflicting, undefined);
+  assert.equal(store.getAction("action-1")?.status, "cancelled");
+  store.close();
+});
+
+test("removes the application from the inventory when its removal completes", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "action-1");
+  store.receiveTelemetry("device-1", telemetry);
+  store.receiveAppInventory("device-1", notesAndCalendarInventory);
+  store.createAction("device-1", "removeApplication", "controller", { applicationId: "com.example.notes" });
+
+  store.completeAction("action-1", true, "Application removed", "application_removed", undefined, "completed");
+
+  assert.deepEqual(
+    store.getAppInventorySnapshot("device-1")?.apps.map((app) => app.applicationId),
+    ["com.example.calendar"],
+  );
+  store.close();
+});
+
+test("keeps the application in the inventory when its removal is cancelled", () => {
+  const store = new DeviceStore(":memory:", () => "2026-09-19T12:00:00.000Z", () => "action-1");
+  store.receiveTelemetry("device-1", telemetry);
+  store.receiveAppInventory("device-1", notesAndCalendarInventory);
+  store.createAction("device-1", "removeApplication", "controller", { applicationId: "com.example.notes" });
+
+  store.completeAction("action-1", false, "Application removal cancelled", "approval_declined", undefined, "cancelled");
+
+  assert.deepEqual(
+    store.getAppInventorySnapshot("device-1")?.apps.map((app) => app.applicationId),
+    ["com.example.calendar", "com.example.notes"],
+  );
   store.close();
 });
 

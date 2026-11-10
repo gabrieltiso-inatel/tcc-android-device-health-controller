@@ -77,7 +77,9 @@ agent registra Action(origin=device, status=delivered)
 - tokens são armazenados como hash e nunca devem aparecer em logs;
 - resultados de erro não expõem detalhes internos;
 - ações do controlador suportam retry e expiração;
-- o mesmo identificador de ação não deve executar o efeito duas vezes.
+- o mesmo identificador de ação não deve executar o efeito duas vezes;
+- o primeiro resultado final prevalece; o mesmo estado reenviado é aceito sem alteração e um estado diferente é rejeitado com conflito;
+- uma remoção concluída retira a referência correspondente do inventário atual.
 
 ## Persistência
 
