@@ -40,17 +40,17 @@ Concluído:
 - framework unificado de ações com origem `controller` ou `device`;
 - histórico compartilhado de ações;
 - telemetria, resumo de armazenamento e inventário de aplicativos;
-- contrato e snapshot inicial de inventário de arquivos;
+- inventário de arquivos autorizados e remoção por `removeFile`, com referência opaca, revisão esperada e aprovação no agent;
+- pesquisa e paginação de inventários, filtro de histórico e atualização automática da visualização;
 - pareamento, autenticação, retry, expiração e idempotência;
 - `removeApplication` validado ponta a ponta, com primeiro resultado final prevalecendo, conflito `409` para resultados divergentes e inventário coerente após a conclusão.
 
 Próximo:
 
-- melhorar a apresentação e filtragem do histórico;
+- ampliar informações disponíveis sobre aplicativos e avaliar novas ações oficiais de manutenção;
 
 Depois:
 
-- `removeFile` para pastas e mídia autorizada usa referência opaca, revisão esperada e consentimento; o agent escolhe o fluxo oficial sem alterar a intenção no controller;
 - ampliar ações de gerenciamento possíveis no agent comum;
 - avaliar capacidades adicionais com Device Owner/Profile Owner.
 

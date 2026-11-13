@@ -4,7 +4,7 @@ Este documento registra o escopo funcional do controlador. Atualize o estado dos
 
 O controlador deve centralizar leituras e intenções de gerenciamento. O fato de uma ação exigir consentimento, notificação ou retomada no agent não a coloca fora do escopo.
 
-## Concluído
+## Implementado
 
 ### Cadastrar dispositivo
 
@@ -32,7 +32,8 @@ O controlador deve centralizar leituras e intenções de gerenciamento. O fato d
 ### Consultar aplicativos
 
 - solicitar inventário de aplicativos instalados pelo usuário;
-- exibir nome, identificador, versão e datas de instalação e atualização.
+- exibir nome, identificador, versão e datas de instalação e atualização;
+- pesquisar nomes e navegar em páginas de 20 entradas;
 - não oferecer remoção para a própria aplicação do agent quando o inventário informar `canRemove=false`.
 
 ### Visualizar histórico de ações
@@ -48,7 +49,8 @@ O controlador deve centralizar leituras e intenções de gerenciamento. O fato d
 - solicitar um inventário explícito de arquivos disponíveis;
 - mostrar fontes, nome, tipo, tamanho, data de alteração e referência de revisão;
 - preservar o snapshot atual separado do histórico de ações;
-- tratar `fileId`, `sourceId` e `revision` como referências opacas.
+- tratar `fileId`, `sourceId` e `revision` como referências opacas;
+- pesquisar nomes e navegar em páginas de 20 entradas.
 
 ### Remover aplicação
 
@@ -58,12 +60,11 @@ O controlador deve centralizar leituras e intenções de gerenciamento. O fato d
 - retirar a aplicação do inventário atual quando a remoção for concluída;
 - mostrar o último resultado de remoção junto a cada aplicativo.
 
-## Parcial
-
 ### Sincronizar estado automaticamente
 
 - telemetria básica, armazenamento e inventário de aplicativos já são sincronizados automaticamente;
-- sincronizações automáticas futuras não devem gerar histórico de ações.
+- atualizar os snapshots sem criar entradas no histórico de ações;
+- coletar arquivos mediante solicitação explícita e atualizar o inventário após remoções.
 
 ### Remover arquivo
 
@@ -74,9 +75,7 @@ O controlador deve centralizar leituras e intenções de gerenciamento. O fato d
 
 ## Planejado
 
-- melhorar a apresentação e filtragem do histórico;
 - ampliar informações disponíveis sobre aplicativos;
-- trabalhar com arquivos autorizados pelo usuário através das APIs oficiais;
 - ampliar ações de gerenciamento de aplicações que sejam possíveis com consentimento;
 - avaliar ações adicionais em modo Device Owner/Profile Owner.
 

@@ -1,33 +1,42 @@
-# Device Health Controller
+# Android Device Health — Controlador
 
-Controlador local do primeiro fluxo ponta a ponta. Ele mostra a telemetria recebida e coordena ações suportadas pelo agente.
+Solução acadêmica de TCC para acompanhamento e manutenção de dispositivos Android em ambientes familiares. O controlador reúne as informações dos dispositivos em um painel Web e coordena solicitações executadas pelo [agente Android](https://github.com/gabrieltiso-inatel/tcc-android-device-health-agent).
 
-## Requisitos
+## Funcionalidades
 
-- Node.js 24 ou superior
+- Pareamento por código temporário e autenticação do agente por token.
+- Visão dos dispositivos, bateria, carregamento, último contato e armazenamento.
+- Inventários de aplicativos e arquivos autorizados, com pesquisa e paginação.
+- Solicitação de atualizações e remoções com aprovação no dispositivo.
+- Histórico compartilhado com o agente, incluindo origem, estado e resultado das ações.
 
-## Execução
+O agente inicia a comunicação por HTTP e consulta as ações por polling. As coletas automáticas atualizam o estado atual sem gerar histórico. Solicitações explícitas usam um fluxo comum com retry, expiração, idempotência e retomada de aprovações no agente.
+
+## Executar pelo código-fonte
+
+Requer **Node.js 24 ou superior**.
 
 ```sh
-npm install
+npm ci
 npm run dev
 ```
 
-Abra `http://localhost:3000` no navegador. A tela inicial lista os dispositivos; selecione um dispositivo para ver seu estado atual e o histórico de ações.
+Abra <http://localhost:3000>. Para executar a versão compilada, use `npm run build` e depois `npm start`.
 
-## Validação
+### Conectar um dispositivo
 
-O dashboard apresenta áreas de saúde, armazenamento, apps, arquivos, pendências e histórico. A visualização acompanha o controller a cada 5 segundos sem solicitar novas coletas. Apps e arquivos permitem pesquisa, e o histórico permite filtro por estado; as listas mostram 20 entradas por página. Em telas estreitas, as linhas das tabelas são apresentadas como blocos com rótulos. **Update** solicita uma coleta explícita; remoções sempre pedem aprovação no Android. O agent usa a leitura autenticada `GET /api/devices/{deviceId}/state` para consultar os mesmos snapshots.
+1. No painel, selecione **Add device** para gerar um código temporário.
+2. Instale e abra o agente Android.
+3. Informe o endereço do controlador e o código de seis dígitos no agente.
+4. Após o pareamento, selecione o dispositivo no painel para consultar os dados e solicitar ações.
 
-O workflow `CI` executa build TypeScript e testes automaticamente em pushes e pull requests, usando Node.js 24 e `npm ci`. O resultado aparece na aba **Actions** do GitHub; também é possível executar por **Run workflow**. Não requer secrets e não publica a aplicação.
+No emulador Android, use `http://10.0.2.2:3000`. Em um dispositivo físico na mesma rede, use o IP do computador, por exemplo `http://192.168.1.10:3000`. A porta pode ser alterada pela variável `PORT`.
 
-```sh
-npm run check
-```
+Os dados ficam em `data/controller.db`, relativo ao diretório de execução. Preserve essa pasta ao atualizar a aplicação.
 
-## Baixar e executar
+## Baixar o pacote
 
-Na aba **Actions**, abra uma execução bem-sucedida de `CI` e baixe `controller-package` em **Artifacts** (é necessário estar autenticado no GitHub). Extraia o ZIP do artifact e depois o pacote `.tgz`:
+Na aba [Actions](https://github.com/gabrieltiso-inatel/tcc-android-device-health-controller/actions), abra uma execução bem-sucedida de **CI** e baixe o artifact **controller-package**. O download exige login no GitHub. Extraia o ZIP e, em seguida, o pacote:
 
 ```sh
 tar -xzf android-device-health-controller-0.1.0.tgz
@@ -36,43 +45,22 @@ npm ci --omit=dev
 npm start
 ```
 
-Requer Node.js 24 ou superior. Abra `http://localhost:3000`. No telefone, informe `http://IP-DO-COMPUTADOR:3000` na mesma rede, usando o APK debug de teste. `PORT` permite alterar a porta; o banco fica em `data/controller.db` dentro da pasta de execução. Preserve esse diretório ao atualizar. O servidor aceita conexões da rede; use em rede confiável, sem expor a porta à internet. Hospedagem pública exige revisão de segurança e HTTPS.
+O pacote requer Node.js 24 ou superior. Para gerá-lo localmente, execute `npm ci` e `npm run package`; o arquivo `.tgz` será criado em `dist/`.
 
-Para gerar o pacote localmente: `npm ci && npm run package`. O arquivo estará em `dist/`. O pacote contém aplicação compilada e lockfile; dependências são instaladas no computador de destino.
+## Validação e CI
 
-## API inicial
+```sh
+npm run check
+```
 
-| Método | Rota | Uso |
-| --- | --- | --- |
-| `GET` | `/health` | Verifica se o controlador está ativo. |
-| `GET` | `/api/devices` | Lista os dispositivos conhecidos e o estado `online`/`stale`. |
-| `POST` | `/api/pairing-codes` | Cria um código temporário de pareamento. |
-| `POST` | `/api/devices/pair` | Pareia um agente e entrega seu token. |
-| `POST` | `/api/devices/{deviceId}/telemetry` | Recebe estado, versão e capacidades do agente. |
-| `POST` | `/api/devices/{deviceId}/storage` | Recebe o snapshot atual de armazenamento. |
-| `POST` | `/api/devices/{deviceId}/apps` | Recebe o snapshot atual do inventário de aplicativos. |
-| `POST` | `/api/devices/{deviceId}/files` | Recebe o snapshot atual do inventário de arquivos autorizados. |
-| `GET` | `/api/devices/{deviceId}/actions` | Entrega ações pendentes ao agente. |
-| `POST` | `/api/devices/{deviceId}/actions` | Cria uma ação com origem no controlador ou dispositivo. |
-| `POST` | `/api/actions/{actionId}/result` | Registra o resultado de uma ação. |
-| `GET` | `/api/devices/{deviceId}/history` | Lista o histórico de ações do dispositivo. |
+O comando compila o TypeScript e executa os testes. O GitHub Actions realiza essas verificações em pushes e pull requests e gera o pacote de instalação, disponível por 14 dias. O fluxo também pode ser iniciado manualmente por **Run workflow**.
 
-O agente deve enviar o token recebido no pareamento através do header `Authorization: Bearer <token>` nas chamadas de telemetria, ações e histórico.
+## Arquitetura e acesso
 
-O dashboard diferencia `Last contact`, atualizado quando o agente envia estado ou consulta ações, de `Telemetry captured`, que representa o instante da última coleta recebida. Os snapshots atuais de armazenamento e aplicativos são atualizados automaticamente, e a tela do dispositivo também permite solicitar atualizações explícitas.
+O controlador utiliza **TypeScript, Node.js, Fastify e SQLite**, com HTML renderizado no servidor. Ele expressa intenções de manutenção; o agente resolve as referências, valida os alvos e integra as APIs Android. Arquivos são representados por metadados e referências opacas, com conteúdo e caminhos físicos mantidos no dispositivo.
 
-Ações do controlador entregues sem confirmação voltam a ficar disponíveis após 60 segundos. Depois de três entregas sem resultado, o controlador marca a ação como `expired`.
+O painel e os endpoints de gerenciamento permitem operar o controlador sem login. O servidor aceita conexões da rede e deve ser usado em ambiente confiável. Uma instalação acessível pela Internet exige proteção de acesso e HTTPS. O APK de teste permite HTTP.
 
-Falhas definitivas usam códigos internos seguros, como `unsupported_action` e `execution_failed`. Falhas temporárias de conexão não encerram a ação e são tentadas novamente.
-
-O primeiro resultado final de uma ação prevalece. Reenviar o mesmo estado final devolve a ação registrada sem alterá-la; um estado final diferente para uma ação já encerrada recebe `409`.
-
-Quando `removeApplication` ou `removeFile` termina como `completed`, o item correspondente sai do inventário atual do dispositivo. A tela do dispositivo mostra o último resultado de remoção de cada aplicativo.
-
-O controlador cria ações somente quando a capacidade correspondente foi informada pelo agente.
-
-O resultado de `collectStorageSummary` contém apenas totais agregados de espaço total, usado e disponível. Nenhum arquivo é listado ou acessado.
-
-O resultado de `collectAppInventory` contém nome, pacote, versão e datas de instalação e atualização dos aplicativos instalados pelo usuário. Aplicativos do sistema não são incluídos.
-
-Os dispositivos e ações são persistidos em `data/controller.db` usando SQLite local.
+- [Arquitetura](docs/architecture.md)
+- [Casos de uso](docs/use-cases.md)
+- [Agente Android](https://github.com/gabrieltiso-inatel/tcc-android-device-health-agent)

@@ -44,7 +44,7 @@ O resumo de armazenamento segue o mesmo fluxo de observação automática, em um
 
 O inventário de aplicativos segue o mesmo fluxo em um endpoint próprio e atualiza os snapshots sem criar uma ação.
 
-O inventário de arquivos é coletado por `collectFileInventory`, uma ação explícita, e atualiza o snapshot de arquivos quando concluída. As fontes disponíveis podem exigir autorização do usuário; isso é representado nos dados do inventário e não por uma permissão Android no contrato.
+O inventário de arquivos é coletado por `collectFileInventory`, uma ação explícita, e também é sincronizado pelo agent após uma remoção. As coletas atualizam o snapshot de arquivos. As fontes disponíveis podem exigir autorização do usuário; isso é representado nos dados do inventário e não por uma permissão Android no contrato.
 
 ### Ação do controlador
 
@@ -52,7 +52,7 @@ O inventário de arquivos é coletado por `collectFileInventory`, uma ação exp
 controller cria Action(origin=controller, status=pending)
 → agent recebe por polling
 → agent executa e envia resultado
-→ controlador conclui ou falha a ação
+→ controlador registra aprovação pendente ou resultado final
 ```
 
 ### Ação do dispositivo
@@ -86,8 +86,17 @@ agent registra Action(origin=device, status=delivered)
 - `devices`: estado atual e último contato;
 - `actions`: solicitação, origem, entrega, resultado e estado final;
 - `pairing_codes`: códigos temporários e utilização;
-- `device_credentials`: identidade pareada e hash do token.
+- `device_credentials`: identidade pareada e hash do token;
+- `device_storage`: último resumo de armazenamento por dispositivo;
+- `device_app_inventories`: metadados da última coleta de aplicativos;
+- `device_apps`: aplicativos do inventário atual;
 - `device_file_inventories`: última coleta de arquivos por device;
 - `device_files`: metadados do último inventário de arquivos por device.
 
-O uso de `node:sqlite` e o modelo das tabelas devem ser reavaliados antes da solução final do TCC.
+A persistência utiliza `node:sqlite`, com banco local em `data/controller.db` por padrão.
+
+## Acesso e distribuição
+
+O painel e os endpoints de gerenciamento permitem operar o controlador sem login. A autenticação por token protege as chamadas do agent, conforme a rota e a origem da ação. O servidor escuta em `0.0.0.0`, na porta definida por `PORT` ou 3000, e o uso atual pressupõe uma rede confiável. Uma instalação pública exige proteção de acesso e HTTPS.
+
+O CI executa build e testes e gera um pacote `.tgz` com a aplicação compilada e o lockfile. A execução do pacote requer Node.js 24 ou superior e instalação das dependências. O fluxo está definido em [ci.yml](../.github/workflows/ci.yml).
